@@ -1,0 +1,9 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8080:8080"
+    environment:
+      - GIGACHAT_API_KEY=${GIGACHAT_API_KEY}
+    volumes:
+      - ./static:/app/static

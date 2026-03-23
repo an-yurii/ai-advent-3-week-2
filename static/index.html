@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent with GigaChat</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1><i class="fas fa-robot"></i> AI Agent with GigaChat</h1>
+            <p class="subtitle">Interactive chat powered by Go backend and GigaChat API</p>
+        </header>
+
+        <main>
+            <div class="chat-container">
+                <div class="chat-header">
+                    <h2><i class="fas fa-comments"></i> Chat</h2>
+                    <div class="session-info">
+                        <span id="session-id">Session: <code>generating...</code></span>
+                        <button id="copy-session" title="Copy session ID"><i class="fas fa-copy"></i></button>
+                        <button id="new-session" title="Start new session"><i class="fas fa-plus-circle"></i> New</button>
+                    </div>
+                </div>
+                <div class="chat-messages" id="chat-messages">
+                    <div class="message system">
+                        <div class="avatar"><i class="fas fa-info-circle"></i></div>
+                        <div class="content">
+                            <strong>System</strong>
+                            <p>Welcome! Start typing your message below. Your session ID is automatically generated and stored in your browser.</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="chat-input">
+                    <textarea id="message-input" placeholder="Type your message here..." rows="3"></textarea>
+                    <div class="input-actions">
+                        <button id="send-button" class="primary">
+                            <i class="fas fa-paper-plane"></i> Send
+                        </button>
+                        <button id="clear-button" class="secondary">
+                            <i class="fas fa-trash"></i> Clear Chat
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="sidebar">
+                <div class="card">
+                    <h3><i class="fas fa-cogs"></i> How It Works</h3>
+                    <ul>
+                        <li>Each message is sent to the Go server.</li>
+                        <li>The server maintains conversation history per session.</li>
+                        <li>GigaChat API generates AI responses.</li>
+                        <li>Responses are displayed in real‑time.</li>
+                    </ul>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-terminal"></i> API Info</h3>
+                    <p>Endpoint: <code>POST /api/chat</code></p>
+                    <p>Request format:</p>
+                    <pre>{
+  "message": "Hello",
+  "session_id": "uuid"
+}</pre>
+                </div>
+                <div class="card">
+                    <h3><i class="fas fa-server"></i> Server Status</h3>
+                    <p id="server-status"><i class="fas fa-circle status-ok"></i> Connected</p>
+                    <p>Logs are displayed in the server console.</p>
+                </div>
+            </div>
+        </main>
+
+        <footer>
+            <p>Built with Go, GigaChat, and Docker | <a href="https://github.com/example" target="_blank">GitHub</a></p>
+        </footer>
+    </div>
+
+    <script src="script.js"></script>
+</body>
+</html>
