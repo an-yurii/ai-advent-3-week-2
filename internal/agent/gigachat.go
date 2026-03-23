@@ -2,32 +2,147 @@ package agent
 
 import (
 	"bytes"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
+	"sync"
 	"time"
 
 	"ai-agent-gigachat/internal/logging"
+
+	"github.com/google/uuid"
 )
+
+const (
+	oauthURL  = "https://ngw.devices.sberbank.ru:9443/api/v2/oauth"
+	authScope = "GIGACHAT_API_PERS"
+)
+
+// tokenManager handles OAuth token acquisition and refresh.
+type tokenManager struct {
+	apiKey     string
+	httpClient *http.Client
+	logger     *logging.Logger
+	mu         sync.RWMutex
+	token      string
+	expiry     time.Time
+}
+
+// getToken returns a valid access token, fetching a new one if necessary.
+func (tm *tokenManager) getToken() (string, error) {
+	tm.mu.RLock()
+	token := tm.token
+	expiry := tm.expiry
+	tm.mu.RUnlock()
+
+	if token != "" && time.Now().Before(expiry) {
+		return token, nil
+	}
+
+	// Need to fetch new token
+	tm.mu.Lock()
+	defer tm.mu.Unlock()
+
+	// Double-check after acquiring lock
+	if tm.token != "" && time.Now().Before(tm.expiry) {
+		return tm.token, nil
+	}
+
+	// Prepare request
+	body := strings.NewReader("scope=" + authScope)
+	req, err := http.NewRequest("POST", oauthURL, body)
+	if err != nil {
+		return "", fmt.Errorf("failed to create token request: %w", err)
+	}
+	req.Header.Set("Authorization", "Bearer "+tm.apiKey)
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("RqUID", uuid.New().String())
+
+	// Log request (mask auth header)
+	tm.logger.LogGigaChatRequest(oauthURL, map[string][]string{
+		"Authorization": {"Bearer ***"},
+		"Content-Type":  {"application/x-www-form-urlencoded"},
+		"RqUID":         {req.Header.Get("RqUID")},
+	}, "scope="+authScope)
+
+	resp, err := tm.httpClient.Do(req)
+	if err != nil {
+		tm.logger.LogError(err, "token request failed")
+		return "", fmt.Errorf("token request failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("failed to read token response body: %w", err)
+	}
+
+	tm.logger.LogGigaChatResponse(resp.StatusCode, map[string][]string{
+		"Content-Type": resp.Header.Values("Content-Type"),
+	}, string(respBody))
+
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("oauth endpoint returned status %d: %s", resp.StatusCode, string(respBody))
+	}
+
+	var tokenResp struct {
+		AccessToken string `json:"access_token"`
+		ExpiresIn   int    `json:"expires_in"`
+	}
+	if err := json.Unmarshal(respBody, &tokenResp); err != nil {
+		return "", fmt.Errorf("failed to unmarshal token response: %w", err)
+	}
+
+	if tokenResp.AccessToken == "" {
+		return "", fmt.Errorf("empty access token in response")
+	}
+
+	// Set token and expiry (with a small buffer, e.g., 10 seconds earlier)
+	expiresIn := time.Duration(tokenResp.ExpiresIn) * time.Second
+	if expiresIn == 0 {
+		expiresIn = 30 * time.Minute // default
+	}
+	tm.token = tokenResp.AccessToken
+	tm.expiry = time.Now().Add(expiresIn - 10*time.Second)
+
+	return tm.token, nil
+}
 
 // GigaChatClient handles communication with the GigaChat API.
 type GigaChatClient struct {
-	apiKey     string
-	baseURL    string
-	httpClient *http.Client
-	logger     *logging.Logger
+	tokenManager *tokenManager
+	baseURL      string
+	httpClient   *http.Client
+	logger       *logging.Logger
 }
 
 // NewGigaChatClient creates a new GigaChat client.
 func NewGigaChatClient(apiKey string) *GigaChatClient {
-	return &GigaChatClient{
-		apiKey:  apiKey,
-		baseURL: "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
-		httpClient: &http.Client{
-			Timeout: 30 * time.Second,
+	// Create HTTP client with custom transport to skip TLS verification
+	// (necessary for the OAuth endpoint with self‑signed certificate)
+	transport := &http.Transport{
+		TLSClientConfig: &tls.Config{
+			InsecureSkipVerify: true,
 		},
-		logger: logging.Default(),
+	}
+	httpClient := &http.Client{
+		Timeout:   30 * time.Second,
+		Transport: transport,
+	}
+	logger := logging.Default()
+	return &GigaChatClient{
+		tokenManager: &tokenManager{
+			apiKey:     apiKey,
+			httpClient: httpClient,
+			logger:     logger,
+		},
+		baseURL:    "https://gigachat.devices.sberbank.ru/api/v1/chat/completions",
+		httpClient: httpClient,
+		logger:     logger,
 	}
 }
 
@@ -49,6 +164,12 @@ type ChatCompletionResponse struct {
 
 // SendMessage sends a conversation history to GigaChat and returns the assistant's reply.
 func (c *GigaChatClient) SendMessage(messages []Message) (string, error) {
+	// Obtain access token
+	token, err := c.tokenManager.getToken()
+	if err != nil {
+		return "", fmt.Errorf("failed to obtain access token: %w", err)
+	}
+
 	reqPayload := ChatCompletionRequest{
 		Model:       "GigaChat",
 		Messages:    messages,
@@ -65,10 +186,10 @@ func (c *GigaChatClient) SendMessage(messages []Message) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("failed to create request: %w", err)
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
-	// Log request
+	// Log request (mask token)
 	c.logger.LogGigaChatRequest(c.baseURL, map[string][]string{
 		"Authorization": {"Bearer ***"},
 		"Content-Type":  {"application/json"},
