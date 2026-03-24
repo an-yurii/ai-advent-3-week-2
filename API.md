@@ -81,9 +81,19 @@ curl -X POST http://localhost:8080/api/chat \
 ## Session Management
 
 - Each `session_id` maps to an independent conversation history.
-- History is stored in memory (not persisted across server restarts).
-- The server keeps up to the last N messages (currently unlimited) per session.
+- History is **persisted in a PostgreSQL database** and survives server restarts.
+- The server keeps the full history of each session; there is no automatic truncation.
 - To start a fresh conversation, provide a new `session_id`.
+- The web interface automatically generates a UUID for the session and stores it in the browser's local storage, allowing the user to resume the same conversation across page reloads.
+
+## Database
+
+The application uses PostgreSQL to store sessions and messages. The database schema is created automatically on first launch. The following tables are used:
+
+- `sessions` – stores session metadata (id, created_at, updated_at).
+- `messages` – stores each message with role (`user` or `assistant`), content, and timestamp.
+
+All messages are saved immediately after they are sent or received. When a request with an existing `session_id` arrives, the agent loads the previous messages from the database and includes them in the context sent to GigaChat.
 
 ## Logging
 

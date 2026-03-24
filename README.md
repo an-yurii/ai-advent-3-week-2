@@ -7,9 +7,11 @@ A client‑server application with an AI agent that interacts with GigaChat API.
 - **Go backend** – HTTP server with routing, session management, and logging.
 - **AI Agent** – Encapsulated logic for communicating with GigaChat API.
 - **Web interface** – Modern, responsive UI with real‑time chat.
-- **Session‑based history** – In‑memory storage of conversation history per user.
+- **Persistent storage** – PostgreSQL database for conversation history, surviving server restarts.
+- **Session‑based history** – Full history per user with ability to load previous dialogs.
 - **Structured logging** – Detailed logs with millisecond precision.
-- **Dockerized** – Easy deployment with Docker Compose.
+- **Dockerized** – Easy deployment with Docker Compose (includes PostgreSQL).
+- **Database migration** – Automatic schema creation on first launch.
 - **Unit & integration tests** – Test coverage for key components.
 
 ## Architecture
@@ -20,7 +22,7 @@ graph TB
     WebServer -->|Forward| Agent[AI Agent]
     Agent -->|API Call| GigaChat[GigaChat API]
     GigaChat -->|Response| Agent
-    Agent -->|Store History| SessionStore[Session Store]
+    Agent -->|Store History| Storage[(PostgreSQL)]
     Agent -->|Response| WebServer
     WebServer -->|Serve Static| Static[Static Files]
     WebServer -->|JSON Response| User
@@ -44,6 +46,7 @@ graph TB
 2. Create a `.env` file in the project root:
    ```bash
    echo "GIGACHAT_API_KEY=your_api_key_here" > .env
+   echo "DB_PASSWORD=your_postgres_password_here" >> .env   # optional, defaults to 'postgres'
    ```
 
 3. Start the application:
@@ -58,15 +61,24 @@ graph TB
 If you want to run the server locally without Docker:
 
 1. Ensure Go 1.22+ is installed.
-2. Set the environment variable:
+2. Set the environment variables:
    ```bash
    export GIGACHAT_API_KEY=your_api_key_here
+   export DB_HOST=localhost
+   export DB_PORT=5432
+   export DB_USER=postgres
+   export DB_PASSWORD=postgres
+   export DB_NAME=ai_agent
    ```
-3. Run the server:
+3. Run a PostgreSQL instance (e.g., via Docker):
+   ```bash
+   docker run --name ai-agent-postgres -e POSTGRES_PASSWORD=postgres -e POSTGRES_DB=ai_agent -p 5432:5432 -d postgres:16-alpine
+   ```
+4. Run the server:
    ```bash
    go run ./cmd/server
    ```
-4. The web interface will be available at `http://localhost:8080`.
+5. The web interface will be available at `http://localhost:8080`.
 
 ## Project Structure
 
@@ -74,15 +86,48 @@ If you want to run the server locally without Docker:
 .
 ├── cmd/server/main.go          # Entry point
 ├── internal/agent/             # AI agent logic
+├── internal/storage/           # Storage interface & implementations
 ├── internal/server/            # HTTP handlers & middleware
 ├── internal/logging/           # Structured logging
 ├── static/                     # Web interface (HTML, CSS, JS)
+├── migrations/                 # SQL migration scripts
 ├── tests/                      # Unit and integration tests
 ├── Dockerfile
 ├── docker-compose.yml
 ├── go.mod
 └── README.md
 ```
+
+## Database Persistence
+
+The application uses PostgreSQL to store conversation history. Each session and its messages are saved in the database, allowing history to survive server restarts.
+
+### Schema
+
+- **sessions** – stores session metadata (id, created_at, updated_at).
+- **messages** – stores individual messages (id, session_id, role, content, created_at, sequence).
+
+Migrations are applied automatically on startup via `CREATE TABLE IF NOT EXISTS`.
+
+### Storage Interface
+
+The agent uses a pluggable storage interface (`storage.Storage`). Two implementations are provided:
+
+- **PostgreSQL** – production storage with full persistence.
+- **In‑memory** – used for testing and as a fallback when no database is configured.
+
+### Environment Variables
+
+| Environment Variable | Description                         | Required | Default          |
+|----------------------|-------------------------------------|----------|------------------|
+| `GIGACHAT_API_KEY`   | Bearer token for GigaChat API       | Yes      | –                |
+| `DB_HOST`            | PostgreSQL host                     | No       | `postgres`       |
+| `DB_PORT`            | PostgreSQL port                     | No       | `5432`           |
+| `DB_USER`            | PostgreSQL user                     | No       | `postgres`       |
+| `DB_PASSWORD`        | PostgreSQL password                 | No       | `postgres`       |
+| `DB_NAME`            | PostgreSQL database name            | No       | `ai_agent`       |
+
+When running with Docker Compose, all database variables are set automatically; you only need to provide `DB_PASSWORD` if you wish to change it.
 
 ## API Reference
 
@@ -108,14 +153,8 @@ Run the test suite:
 go test ./...
 ```
 
-- Unit tests cover agent, session, and logging.
-- Integration tests simulate HTTP requests and verify end‑to‑end flow.
-
-## Configuration
-
-| Environment Variable | Description                         | Required |
-|----------------------|-------------------------------------|----------|
-| `GIGACHAT_API_KEY`   | Bearer token for GigaChat API       | Yes      |
+- Unit tests cover agent, session, storage, and logging.
+- Integration tests simulate HTTP requests and verify end‑to‑end flow with a real database (using test containers).
 
 ## License
 
