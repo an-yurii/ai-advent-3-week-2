@@ -4,8 +4,11 @@ import "errors"
 
 // Message represents a single message in a conversation.
 type Message struct {
-	Role    string `json:"role"` // "user" or "assistant"
-	Content string `json:"content"`
+	Role             string `json:"role"` // "user" or "assistant"
+	Content          string `json:"content"`
+	PromptTokens     int    `json:"prompt_tokens,omitempty"`     // tokens used in the request (for assistant messages)
+	CompletionTokens int    `json:"completion_tokens,omitempty"` // tokens used in the response (for assistant messages)
+	TotalTokens      int    `json:"total_tokens,omitempty"`      // total tokens (prompt + completion)
 }
 
 // Session holds the conversation history for a single user session.

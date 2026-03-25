@@ -155,19 +155,33 @@ type ChatCompletionRequest struct {
 	MaxTokens   int     `json:"max_tokens,omitempty"`
 }
 
+// CompletionUsage represents token usage from GigaChat API.
+type CompletionUsage struct {
+	PromptTokens     int `json:"prompt_tokens"`
+	CompletionTokens int `json:"completion_tokens"`
+	TotalTokens      int `json:"total_tokens"`
+}
+
 // ChatCompletionResponse represents the response from GigaChat.
 type ChatCompletionResponse struct {
 	Choices []struct {
 		Message Message `json:"message"`
 	} `json:"choices"`
+	Usage *CompletionUsage `json:"usage,omitempty"`
 }
 
-// SendMessage sends a conversation history to GigaChat and returns the assistant's reply.
-func (c *GigaChatClient) SendMessage(messages []Message) (string, error) {
+// CompletionResult holds the result of a chat completion.
+type CompletionResult struct {
+	Content string
+	Usage   *CompletionUsage
+}
+
+// SendMessage sends a conversation history to GigaChat and returns the assistant's reply and token usage.
+func (c *GigaChatClient) SendMessage(messages []Message) (*CompletionResult, error) {
 	// Obtain access token
 	token, err := c.tokenManager.getToken()
 	if err != nil {
-		return "", fmt.Errorf("failed to obtain access token: %w", err)
+		return nil, fmt.Errorf("failed to obtain access token: %w", err)
 	}
 
 	reqPayload := ChatCompletionRequest{
@@ -179,12 +193,12 @@ func (c *GigaChatClient) SendMessage(messages []Message) (string, error) {
 
 	body, err := json.Marshal(reqPayload)
 	if err != nil {
-		return "", fmt.Errorf("failed to marshal request: %w", err)
+		return nil, fmt.Errorf("failed to marshal request: %w", err)
 	}
 
 	req, err := http.NewRequest("POST", c.baseURL, bytes.NewReader(body))
 	if err != nil {
-		return "", fmt.Errorf("failed to create request: %w", err)
+		return nil, fmt.Errorf("failed to create request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
@@ -198,13 +212,13 @@ func (c *GigaChatClient) SendMessage(messages []Message) (string, error) {
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
 		c.logger.LogError(err, "GigaChat request failed")
-		return "", fmt.Errorf("GigaChat API request failed: %w", err)
+		return nil, fmt.Errorf("GigaChat API request failed: %w", err)
 	}
 	defer resp.Body.Close()
 
 	respBody, err := io.ReadAll(resp.Body)
 	if err != nil {
-		return "", fmt.Errorf("failed to read response body: %w", err)
+		return nil, fmt.Errorf("failed to read response body: %w", err)
 	}
 
 	// Log response
@@ -213,17 +227,20 @@ func (c *GigaChatClient) SendMessage(messages []Message) (string, error) {
 	}, string(respBody))
 
 	if resp.StatusCode != http.StatusOK {
-		return "", fmt.Errorf("GigaChat API returned status %d: %s", resp.StatusCode, string(respBody))
+		return nil, fmt.Errorf("GigaChat API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var completionResp ChatCompletionResponse
 	if err := json.Unmarshal(respBody, &completionResp); err != nil {
-		return "", fmt.Errorf("failed to unmarshal response: %w", err)
+		return nil, fmt.Errorf("failed to unmarshal response: %w", err)
 	}
 
 	if len(completionResp.Choices) == 0 {
-		return "", fmt.Errorf("no choices in response")
+		return nil, fmt.Errorf("no choices in response")
 	}
 
-	return completionResp.Choices[0].Message.Content, nil
+	return &CompletionResult{
+		Content: completionResp.Choices[0].Message.Content,
+		Usage:   completionResp.Usage,
+	}, nil
 }

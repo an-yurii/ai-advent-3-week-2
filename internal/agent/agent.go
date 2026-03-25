@@ -33,12 +33,24 @@ func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
 
 // toAgentMessage converts a storage.Message to an agent.Message.
 func toAgentMessage(m storage.Message) Message {
-	return Message{Role: m.Role, Content: m.Content}
+	return Message{
+		Role:             m.Role,
+		Content:          m.Content,
+		PromptTokens:     m.PromptTokens,
+		CompletionTokens: m.CompletionTokens,
+		TotalTokens:      m.TotalTokens,
+	}
 }
 
 // toStorageMessage converts an agent.Message to a storage.Message.
 func toStorageMessage(m Message) storage.Message {
-	return storage.Message{Role: m.Role, Content: m.Content}
+	return storage.Message{
+		Role:             m.Role,
+		Content:          m.Content,
+		PromptTokens:     m.PromptTokens,
+		CompletionTokens: m.CompletionTokens,
+		TotalTokens:      m.TotalTokens,
+	}
 }
 
 // toAgentSession converts a storage.Session to an agent.Session.
@@ -53,28 +65,28 @@ func toAgentSession(s *storage.Session) *Session {
 	return &Session{ID: s.ID, History: history}
 }
 
-// SendMessage processes a user message for a given session ID and returns the assistant's response.
-func (a *Agent) SendMessage(sessionID, userMessage string) (string, error) {
+// SendMessage processes a user message for a given session ID and returns the assistant's response and token usage.
+func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, error) {
 	// Ensure session exists
 	err := a.storage.CreateSession(sessionID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	// Add user message to storage
+	// Add user message to storage (no token counts yet)
 	userMsg := Message{Role: "user", Content: userMessage}
 	if err := a.storage.AddMessage(sessionID, toStorageMessage(userMsg)); err != nil {
-		return "", err
+		return nil, err
 	}
 
 	// Retrieve the full conversation history (including the newly added message)
 	storageSession, err := a.storage.GetSession(sessionID)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 	if storageSession == nil {
 		// Should not happen because we just created the session
-		return "", ErrSessionNotFound
+		return nil, ErrSessionNotFound
 	}
 
 	// Convert history to agent messages
@@ -84,19 +96,25 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (string, error) {
 	}
 
 	// Send the whole history to GigaChat
-	assistantResponse, err := a.client.SendMessage(history)
+	result, err := a.client.SendMessage(history)
 	if err != nil {
-		return "", err
+		return nil, err
 	}
 
-	// Add assistant response to storage
-	assistantMsg := Message{Role: "assistant", Content: assistantResponse}
+	// Add assistant response to storage with token counts
+	assistantMsg := Message{
+		Role:             "assistant",
+		Content:          result.Content,
+		PromptTokens:     result.Usage.PromptTokens,
+		CompletionTokens: result.Usage.CompletionTokens,
+		TotalTokens:      result.Usage.TotalTokens,
+	}
 	if err := a.storage.AddMessage(sessionID, toStorageMessage(assistantMsg)); err != nil {
 		// We still return the response, but log the error
 		a.logger.LogError(err, "failed to store assistant message")
 	}
 
-	return assistantResponse, nil
+	return result, nil
 }
 
 // GetSession returns the session for the given ID, or nil if not found.

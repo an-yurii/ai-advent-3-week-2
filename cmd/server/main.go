@@ -99,7 +99,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response, err := aiAgent.SendMessage(req.SessionID, req.Message)
+	result, err := aiAgent.SendMessage(req.SessionID, req.Message)
 	if err != nil {
 		log.Printf("Error sending message: %v", err)
 		http.Error(w, "Internal server error", http.StatusInternalServerError)
@@ -107,9 +107,14 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]string{
-		"response":   response,
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"response":   result.Content,
 		"session_id": req.SessionID,
+		"usage": map[string]interface{}{
+			"prompt_tokens":     result.Usage.PromptTokens,
+			"completion_tokens": result.Usage.CompletionTokens,
+			"total_tokens":      result.Usage.TotalTokens,
+		},
 	})
 }
 

@@ -60,7 +60,10 @@ func (s *PostgresStorage) migrate(ctx context.Context) error {
 			role VARCHAR(20) NOT NULL,
 			content TEXT NOT NULL,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-			sequence INTEGER NOT NULL
+			sequence INTEGER NOT NULL,
+			prompt_tokens INTEGER DEFAULT 0,
+			completion_tokens INTEGER DEFAULT 0,
+			total_tokens INTEGER DEFAULT 0
 		);
 
 		CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
@@ -68,6 +71,17 @@ func (s *PostgresStorage) migrate(ctx context.Context) error {
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to create tables: %w", err)
+	}
+
+	// Ensure columns exist (for existing databases)
+	_, err = s.pool.Exec(ctx, `
+		ALTER TABLE messages
+		ADD COLUMN IF NOT EXISTS prompt_tokens INTEGER DEFAULT 0,
+		ADD COLUMN IF NOT EXISTS completion_tokens INTEGER DEFAULT 0,
+		ADD COLUMN IF NOT EXISTS total_tokens INTEGER DEFAULT 0;
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to add token columns: %w", err)
 	}
 
 	return nil
@@ -91,7 +105,7 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 
 	// Fetch messages ordered by sequence
 	rows, err := s.pool.Query(ctx,
-		`SELECT role, content, created_at, sequence FROM messages
+		`SELECT role, content, created_at, sequence, prompt_tokens, completion_tokens, total_tokens FROM messages
 		 WHERE session_id = $1 ORDER BY sequence`, id)
 	if err != nil {
 		return nil, fmt.Errorf("failed to query messages: %w", err)
@@ -103,10 +117,17 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 		var role, content string
 		var msgTime time.Time
 		var seq int
-		if err := rows.Scan(&role, &content, &msgTime, &seq); err != nil {
+		var promptTokens, completionTokens, totalTokens int
+		if err := rows.Scan(&role, &content, &msgTime, &seq, &promptTokens, &completionTokens, &totalTokens); err != nil {
 			return nil, fmt.Errorf("failed to scan message: %w", err)
 		}
-		history = append(history, storage.Message{Role: role, Content: content})
+		history = append(history, storage.Message{
+			Role:             role,
+			Content:          content,
+			PromptTokens:     promptTokens,
+			CompletionTokens: completionTokens,
+			TotalTokens:      totalTokens,
+		})
 	}
 	if err := rows.Err(); err != nil {
 		return nil, fmt.Errorf("error iterating messages: %w", err)
@@ -163,8 +184,8 @@ func (s *PostgresStorage) AddMessage(sessionID string, msg storage.Message) erro
 
 	// Insert the message
 	_, err = tx.Exec(ctx,
-		`INSERT INTO messages (session_id, role, content, sequence) VALUES ($1, $2, $3, $4)`,
-		sessionID, msg.Role, msg.Content, seq)
+		`INSERT INTO messages (session_id, role, content, sequence, prompt_tokens, completion_tokens, total_tokens) VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		sessionID, msg.Role, msg.Content, seq, msg.PromptTokens, msg.CompletionTokens, msg.TotalTokens)
 	if err != nil {
 		return fmt.Errorf("failed to insert message: %w", err)
 	}

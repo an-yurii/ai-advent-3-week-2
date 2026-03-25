@@ -81,11 +81,29 @@ async function loadSessionHistory() {
             chatMessages.innerHTML = '';
             // Add each historical message
             session.history.forEach(msg => addMessage(msg.role, msg.content));
+            // Compute token totals from history (use last assistant message's usage)
+            let lastPrompt = 0, lastCompletion = 0, lastTotal = 0;
+            for (const msg of session.history) {
+                if (msg.role === 'assistant' && msg.prompt_tokens) {
+                    lastPrompt = msg.prompt_tokens;
+                    lastCompletion = msg.completion_tokens;
+                    lastTotal = msg.total_tokens;
+                }
+            }
+            // Update token counters with the last assistant message's usage
+            updateTokenCounts(lastPrompt, lastCompletion, lastTotal);
         }
     } catch (error) {
         console.error('Failed to load session history:', error);
         addMessage('system', `Note: Could not load previous messages (${error.message})`);
     }
+}
+
+// Update token counters in the UI
+function updateTokenCounts(prompt, completion, total) {
+    document.getElementById('token-prompt').textContent = prompt;
+    document.getElementById('token-completion').textContent = completion;
+    document.getElementById('token-total').textContent = total;
 }
 
 // Send message to server
@@ -114,6 +132,14 @@ async function sendMessage() {
 
         const data = await response.json();
         addMessage('assistant', data.response);
+        // Update token counts if available
+        if (data.usage) {
+            updateTokenCounts(
+                data.usage.prompt_tokens,
+                data.usage.completion_tokens,
+                data.usage.total_tokens
+            );
+        }
     } catch (error) {
         console.error('Error sending message:', error);
         addMessage('system', `Error: ${error.message}`);
@@ -160,6 +186,8 @@ function newSession() {
         document.getElementById('session-id').innerHTML = `Session: <code>${sessionId}</code>`;
         chatMessages.innerHTML = '';
         addMessage('system', 'New session started. Previous history is cleared on the server.');
+        // Reset token counters
+        updateTokenCounts(0, 0, 0);
         // Update URL without reload
         const url = new URL(window.location);
         url.searchParams.set('session', sessionId);
