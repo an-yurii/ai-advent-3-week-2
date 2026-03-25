@@ -1,7 +1,9 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -10,14 +12,52 @@ import (
 	"ai-agent-gigachat/internal/agent"
 	"ai-agent-gigachat/internal/storage"
 	"ai-agent-gigachat/internal/storage/memory"
+	"ai-agent-gigachat/internal/storage/postgres"
 )
 
 var aiAgent *agent.Agent
 var store storage.Storage
 
+func createStorage() storage.Storage {
+	// Read PostgreSQL environment variables
+	host := os.Getenv("DB_HOST")
+	if host == "" {
+		host = "postgres"
+	}
+	port := os.Getenv("DB_PORT")
+	if port == "" {
+		port = "5432"
+	}
+	user := os.Getenv("DB_USER")
+	if user == "" {
+		user = "postgres"
+	}
+	password := os.Getenv("DB_PASSWORD")
+	if password == "" {
+		password = "postgres"
+	}
+	dbname := os.Getenv("DB_NAME")
+	if dbname == "" {
+		dbname = "ai_agent"
+	}
+
+	// Build connection string
+	connString := fmt.Sprintf("postgres://%s:%s@%s:%s/%s?sslmode=disable",
+		user, password, host, port, dbname)
+
+	ctx := context.Background()
+	pgStore, err := postgres.New(ctx, connString)
+	if err != nil {
+		log.Printf("Failed to connect to PostgreSQL: %v. Falling back to in-memory storage.", err)
+		return memory.New()
+	}
+	log.Println("Using PostgreSQL storage")
+	return pgStore
+}
+
 func main() {
-	// Initialize storage (in-memory for now)
-	store = memory.New()
+	// Initialize storage (PostgreSQL with fallback to memory)
+	store = createStorage()
 	// API key from environment (required for GigaChat)
 	apiKey := os.Getenv("GIGACHAT_API_KEY")
 	if apiKey == "" {
