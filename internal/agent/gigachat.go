@@ -188,7 +188,7 @@ func (c *GigaChatClient) SendMessage(messages []Message) (*CompletionResult, err
 		Model:       "GigaChat",
 		Messages:    messages,
 		Temperature: 0.7,
-		MaxTokens:   1024,
+		MaxTokens:   2048,
 	}
 
 	body, err := json.Marshal(reqPayload)
