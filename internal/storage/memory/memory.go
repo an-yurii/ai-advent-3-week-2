@@ -2,6 +2,7 @@ package memory
 
 import (
 	"sync"
+	"time"
 
 	"ai-agent-gigachat/internal/storage"
 )
@@ -31,8 +32,10 @@ func (m *MemoryStorage) GetSession(id string) (*storage.Session, error) {
 	history := make([]storage.Message, len(session.History))
 	copy(history, session.History)
 	return &storage.Session{
-		ID:      id,
-		History: history,
+		ID:        id,
+		History:   history,
+		CreatedAt: session.CreatedAt,
+		UpdatedAt: session.UpdatedAt,
 	}, nil
 }
 
@@ -41,9 +44,12 @@ func (m *MemoryStorage) CreateSession(id string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if _, exists := m.sessions[id]; !exists {
+		now := time.Now()
 		m.sessions[id] = &storage.Session{
-			ID:      id,
-			History: []storage.Message{},
+			ID:        id,
+			History:   []storage.Message{},
+			CreatedAt: now,
+			UpdatedAt: now,
 		}
 	}
 	return nil
@@ -58,6 +64,7 @@ func (m *MemoryStorage) AddMessage(sessionID string, msg storage.Message) error 
 		return storage.ErrSessionNotFound
 	}
 	session.History = append(session.History, msg)
+	session.UpdatedAt = time.Now()
 	return nil
 }
 

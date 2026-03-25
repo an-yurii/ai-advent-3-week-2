@@ -81,16 +81,16 @@ async function loadSessionHistory() {
             chatMessages.innerHTML = '';
             // Add each historical message
             session.history.forEach(msg => addMessage(msg.role, msg.content));
-            // Compute token totals from history (use last assistant message's usage)
+            // Compute token totals from history
             let lastPrompt = 0, lastCompletion = 0, lastTotal = 0;
             for (const msg of session.history) {
                 if (msg.role === 'assistant' && msg.prompt_tokens) {
                     lastPrompt = msg.prompt_tokens;
                     lastCompletion = msg.completion_tokens;
-                    lastTotal = msg.total_tokens;
+                    lastTotal = msg.total_tokens; // total_tokens of the last assistant message is cumulative
                 }
             }
-            // Update token counters with the last assistant message's usage
+            // Update token counters
             updateTokenCounts(lastPrompt, lastCompletion, lastTotal);
         }
     } catch (error) {

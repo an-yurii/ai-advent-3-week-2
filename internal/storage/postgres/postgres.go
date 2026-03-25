@@ -134,8 +134,10 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 	}
 
 	return &storage.Session{
-		ID:      id,
-		History: history,
+		ID:        id,
+		History:   history,
+		CreatedAt: createdAt,
+		UpdatedAt: updatedAt,
 	}, nil
 }
 

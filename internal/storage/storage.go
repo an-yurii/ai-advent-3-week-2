@@ -1,6 +1,9 @@
 package storage
 
-import "errors"
+import (
+	"errors"
+	"time"
+)
 
 // Message represents a single message in a conversation.
 type Message struct {
@@ -13,8 +16,10 @@ type Message struct {
 
 // Session holds the conversation history for a single user session.
 type Session struct {
-	ID      string
-	History []Message
+	ID        string
+	History   []Message
+	CreatedAt time.Time
+	UpdatedAt time.Time
 }
 
 // Storage defines the interface for persisting sessions and messages.

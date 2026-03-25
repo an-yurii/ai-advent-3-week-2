@@ -146,7 +146,8 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 		sessions = append(sessions, map[string]interface{}{
 			"id":           id,
 			"last_message": lastMessage,
-			"updated_at":   nil, // memory storage doesn't have timestamps
+			"updated_at":   session.UpdatedAt,
+			"created_at":   session.CreatedAt,
 		})
 	}
 
