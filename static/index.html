@@ -237,37 +237,29 @@
 
         function renderSessions(sessions) {
             const container = document.getElementById('sessions-list');
-            if (!sessions || sessions.length === 0) {
-                container.innerHTML = `
-                    <div class="empty-state">
-                        <i class="fas fa-comment-slash"></i>
-                        <h3>No conversations yet</h3>
-                        <p>Start your first chat with the AI assistant.</p>
+            let sessionCards = '';
+            if (sessions && sessions.length > 0) {
+                sessionCards = sessions.map(session => `
+                    <div class="session-card" data-id="${session.id}">
+                        <div class="session-id">${session.id}</div>
+                        <div class="session-meta">
+                            <span><i class="far fa-calendar"></i> ${new Date(session.updated_at).toLocaleDateString()}</span>
+                            <span><i class="far fa-clock"></i> ${new Date(session.updated_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                        </div>
+                        <div class="session-preview">
+                            ${session.last_message ? session.last_message : 'No messages yet'}
+                        </div>
+                        <div class="session-actions">
+                            <button class="btn-continue" onclick="openSession('${session.id}')">
+                                <i class="fas fa-play"></i> Continue
+                            </button>
+                            <button class="btn-delete" onclick="deleteSession('${session.id}')">
+                                <i class="fas fa-trash"></i> Delete
+                            </button>
+                        </div>
                     </div>
-                `;
-                return;
+                `).join('');
             }
-
-            const sessionCards = sessions.map(session => `
-                <div class="session-card" data-id="${session.id}">
-                    <div class="session-id">${session.id}</div>
-                    <div class="session-meta">
-                        <span><i class="far fa-calendar"></i> ${new Date(session.updated_at).toLocaleDateString()}</span>
-                        <span><i class="far fa-clock"></i> ${new Date(session.updated_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
-                    </div>
-                    <div class="session-preview">
-                        ${session.last_message ? session.last_message : 'No messages yet'}
-                    </div>
-                    <div class="session-actions">
-                        <button class="btn-continue" onclick="openSession('${session.id}')">
-                            <i class="fas fa-play"></i> Continue
-                        </button>
-                        <button class="btn-delete" onclick="deleteSession('${session.id}')">
-                            <i class="fas fa-trash"></i> Delete
-                        </button>
-                    </div>
-                </div>
-            `).join('');
 
             // Add new session card at the end
             const newSessionCard = `
