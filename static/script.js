@@ -7,12 +7,25 @@ function generateSessionId() {
     });
 }
 
-// Get or create session ID from localStorage
-let sessionId = localStorage.getItem('sessionId');
+// Get session ID from URL query parameter, else localStorage, else generate
+function getSessionIdFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    return params.get('session');
+}
+
+let sessionId = getSessionIdFromUrl();
 if (!sessionId) {
-    sessionId = generateSessionId();
+    sessionId = localStorage.getItem('sessionId');
+    if (!sessionId) {
+        sessionId = generateSessionId();
+        localStorage.setItem('sessionId', sessionId);
+    }
+} else {
+    // If session ID from URL, store it for future
     localStorage.setItem('sessionId', sessionId);
 }
+
+// Update session display
 document.getElementById('session-id').innerHTML = `Session: <code>${sessionId}</code>`;
 
 // DOM elements
@@ -22,6 +35,10 @@ const sendButton = document.getElementById('send-button');
 const clearButton = document.getElementById('clear-button');
 const copySessionButton = document.getElementById('copy-session');
 const newSessionButton = document.getElementById('new-session');
+const backToLandingButton = document.getElementById('back-to-landing');
+const fabNewSession = document.getElementById('fab-new-session');
+const toast = document.getElementById('toast');
+const toastMessage = document.getElementById('toast-message');
 
 // Add a message to the chat UI
 function addMessage(role, content) {
@@ -45,6 +62,30 @@ function addMessage(role, content) {
     `;
     chatMessages.appendChild(messageDiv);
     chatMessages.scrollTop = chatMessages.scrollHeight;
+}
+
+// Load session history from server
+async function loadSessionHistory() {
+    try {
+        const response = await fetch(`/api/sessions/${sessionId}`);
+        if (!response.ok) {
+            if (response.status === 404) {
+                // Session doesn't exist yet, that's fine
+                return;
+            }
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+        const session = await response.json();
+        if (session.history && session.history.length > 0) {
+            // Clear the default system message
+            chatMessages.innerHTML = '';
+            // Add each historical message
+            session.history.forEach(msg => addMessage(msg.role, msg.content));
+        }
+    } catch (error) {
+        console.error('Failed to load session history:', error);
+        addMessage('system', `Note: Could not load previous messages (${error.message})`);
+    }
 }
 
 // Send message to server
@@ -101,7 +142,17 @@ function copySessionId() {
     });
 }
 
-// Start a new session
+// Show a toast notification
+function showToast(message, type = 'info') {
+    toastMessage.textContent = message;
+    toast.className = 'toast ' + type;
+    toast.classList.add('show');
+    setTimeout(() => {
+        toast.classList.remove('show');
+    }, 3000);
+}
+
+// Start a new session (creates new ID and navigates)
 function newSession() {
     if (confirm('Start a new session? The current session history will be lost on the server.')) {
         sessionId = generateSessionId();
@@ -109,7 +160,17 @@ function newSession() {
         document.getElementById('session-id').innerHTML = `Session: <code>${sessionId}</code>`;
         chatMessages.innerHTML = '';
         addMessage('system', 'New session started. Previous history is cleared on the server.');
+        // Update URL without reload
+        const url = new URL(window.location);
+        url.searchParams.set('session', sessionId);
+        window.history.pushState({}, '', url);
+        showToast('New chat session created!', 'info');
     }
+}
+
+// Go back to landing page
+function goToLanding() {
+    window.location.href = '/';
 }
 
 // Event listeners
@@ -123,6 +184,15 @@ messageInput.addEventListener('keydown', (e) => {
 clearButton.addEventListener('click', clearChat);
 copySessionButton.addEventListener('click', copySessionId);
 newSessionButton.addEventListener('click', newSession);
+if (fabNewSession) {
+    fabNewSession.addEventListener('click', newSession);
+}
+if (backToLandingButton) {
+    backToLandingButton.addEventListener('click', goToLanding);
+}
 
-// Focus input on load
-messageInput.focus();
+// Load history on page load
+document.addEventListener('DOMContentLoaded', () => {
+    loadSessionHistory();
+    messageInput.focus();
+});

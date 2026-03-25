@@ -3,73 +3,207 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AI Agent with GigaChat</title>
+    <title>AI Agent with GigaChat - Sessions</title>
     <link rel="stylesheet" href="style.css">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        .sessions-container {
+            display: flex;
+            flex-direction: column;
+            gap: 2rem;
+            max-width: 1000px;
+            margin: 0 auto;
+        }
+        .sessions-header {
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+        .sessions-list {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+            gap: 1.5rem;
+        }
+        .session-card {
+            background: #1e293b;
+            border: 1px solid #334155;
+            border-radius: 12px;
+            padding: 1.5rem;
+            transition: transform 0.2s, border-color 0.2s;
+            cursor: pointer;
+            display: flex;
+            flex-direction: column;
+            gap: 0.8rem;
+        }
+        .session-card:hover {
+            transform: translateY(-4px);
+            border-color: #3b82f6;
+        }
+        .session-id {
+            font-family: monospace;
+            background: #0f172a;
+            padding: 6px 10px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            word-break: break-all;
+        }
+        .session-meta {
+            display: flex;
+            justify-content: space-between;
+            font-size: 0.85rem;
+            color: #94a3b8;
+        }
+        .session-preview {
+            font-size: 0.95rem;
+            color: #cbd5e1;
+            line-height: 1.4;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            display: -webkit-box;
+            -webkit-line-clamp: 2;
+            -webkit-box-orient: vertical;
+        }
+        .session-actions {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: auto;
+        }
+        .session-actions button {
+            flex: 1;
+            padding: 0.6rem;
+            border-radius: 8px;
+            border: none;
+            font-weight: 500;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 6px;
+            transition: background 0.2s;
+        }
+        .btn-continue {
+            background: #3b82f6;
+            color: white;
+        }
+        .btn-continue:hover {
+            background: #2563eb;
+        }
+        .btn-delete {
+            background: #475569;
+            color: white;
+        }
+        .btn-delete:hover {
+            background: #64748b;
+        }
+        .new-session-card {
+            background: linear-gradient(135deg, #0f172a, #1e293b);
+            border: 2px dashed #475569;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            text-align: center;
+            min-height: 200px;
+            color: #94a3b8;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            position: relative;
+            overflow: hidden;
+            z-index: 1;
+        }
+        .new-session-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(45deg, rgba(59, 130, 246, 0.1), transparent);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none; /* Ensure clicks pass through */
+        }
+        .new-session-card:hover {
+            border-color: #3b82f6;
+            color: #60a5fa;
+            transform: translateY(-5px);
+            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.3);
+        }
+        .new-session-card:hover::before {
+            opacity: 1;
+        }
+        .new-session-icon {
+            font-size: 3.5rem;
+            margin-bottom: 1rem;
+            color: #3b82f6;
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+        .new-session-title {
+            font-size: 1.6rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+            background: linear-gradient(90deg, #60a5fa, #8b5cf6);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .new-session-desc {
+            font-size: 0.95rem;
+            max-width: 80%;
+            opacity: 0.9;
+        }
+        .empty-state {
+            grid-column: 1 / -1;
+            text-align: center;
+            padding: 3rem;
+            color: #94a3b8;
+        }
+        .empty-state i {
+            font-size: 4rem;
+            margin-bottom: 1rem;
+        }
+        @media (max-width: 768px) {
+            .sessions-list {
+                grid-template-columns: 1fr;
+            }
+        }
+    </style>
 </head>
 <body>
     <div class="container">
         <header>
             <h1><i class="fas fa-robot"></i> AI Agent with GigaChat</h1>
-            <p class="subtitle">Interactive chat powered by Go backend and GigaChat API</p>
+            <p class="subtitle">Choose a session to continue or start a new conversation</p>
         </header>
 
         <main>
-            <div class="chat-container">
-                <div class="chat-header">
-                    <h2><i class="fas fa-comments"></i> Chat</h2>
-                    <div class="session-info">
-                        <span id="session-id">Session: <code>generating...</code></span>
-                        <button id="copy-session" title="Copy session ID"><i class="fas fa-copy"></i></button>
-                        <button id="new-session" title="Start new session"><i class="fas fa-plus-circle"></i> New</button>
-                    </div>
+            <div class="sessions-container">
+                <div class="sessions-header">
+                    <h2><i class="fas fa-history"></i> Your Conversations</h2>
+                    <p>Select a previous session or create a new one</p>
                 </div>
-                <div class="chat-messages" id="chat-messages">
-                    <div class="message system">
-                        <div class="avatar"><i class="fas fa-info-circle"></i></div>
-                        <div class="content">
-                            <strong>System</strong>
-                            <p>Welcome! Start typing your message below. Your session ID is automatically generated and stored in your browser.</p>
-                        </div>
-                    </div>
-                </div>
-                <div class="chat-input">
-                    <textarea id="message-input" placeholder="Type your message here..." rows="3"></textarea>
-                    <div class="input-actions">
-                        <button id="send-button" class="primary">
-                            <i class="fas fa-paper-plane"></i> Send
-                        </button>
-                        <button id="clear-button" class="secondary">
-                            <i class="fas fa-trash"></i> Clear Chat
-                        </button>
-                    </div>
-                </div>
-            </div>
 
-            <div class="sidebar">
-                <div class="card">
-                    <h3><i class="fas fa-cogs"></i> How It Works</h3>
+                <div class="sessions-list" id="sessions-list">
+                    <!-- Sessions will be populated by JavaScript -->
+                    <div class="empty-state">
+                        <i class="fas fa-comment-slash"></i>
+                        <h3>No conversations yet</h3>
+                        <p>Start your first chat with the AI assistant.</p>
+                    </div>
+                </div>
+
+                <div class="card" style="margin-top: 2rem;">
+                    <h3><i class="fas fa-info-circle"></i> How to use</h3>
                     <ul>
-                        <li>Each message is sent to the Go server.</li>
-                        <li>The server maintains conversation history per session.</li>
-                        <li>GigaChat API generates AI responses.</li>
-                        <li>Responses are displayed in real‑time.</li>
+                        <li>Each session is stored permanently in the database.</li>
+                        <li>Click on a session to continue where you left off.</li>
+                        <li>Start a new session for a fresh conversation.</li>
+                        <li>You can delete sessions you no longer need.</li>
                     </ul>
-                </div>
-                <div class="card">
-                    <h3><i class="fas fa-terminal"></i> API Info</h3>
-                    <p>Endpoint: <code>POST /api/chat</code></p>
-                    <p>Request format:</p>
-                    <pre>{
-  "message": "Hello",
-  "session_id": "uuid"
-}</pre>
-                </div>
-                <div class="card">
-                    <h3><i class="fas fa-server"></i> Server Status</h3>
-                    <p id="server-status"><i class="fas fa-circle status-ok"></i> Connected</p>
-                    <p>Logs are displayed in the server console.</p>
                 </div>
             </div>
         </main>
@@ -79,6 +213,109 @@
         </footer>
     </div>
 
-    <script src="script.js"></script>
+    <script>
+        // Fetch sessions from API
+        async function loadSessions() {
+            try {
+                const response = await fetch('/api/sessions');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}`);
+                }
+                const sessions = await response.json();
+                renderSessions(sessions);
+            } catch (error) {
+                console.error('Failed to load sessions:', error);
+                document.getElementById('sessions-list').innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <h3>Failed to load sessions</h3>
+                        <p>${error.message}. Please check server connection.</p>
+                    </div>
+                `;
+            }
+        }
+
+        function renderSessions(sessions) {
+            const container = document.getElementById('sessions-list');
+            if (!sessions || sessions.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <i class="fas fa-comment-slash"></i>
+                        <h3>No conversations yet</h3>
+                        <p>Start your first chat with the AI assistant.</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const sessionCards = sessions.map(session => `
+                <div class="session-card" data-id="${session.id}">
+                    <div class="session-id">${session.id}</div>
+                    <div class="session-meta">
+                        <span><i class="far fa-calendar"></i> ${new Date(session.updated_at).toLocaleDateString()}</span>
+                        <span><i class="far fa-clock"></i> ${new Date(session.updated_at).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}</span>
+                    </div>
+                    <div class="session-preview">
+                        ${session.last_message ? session.last_message : 'No messages yet'}
+                    </div>
+                    <div class="session-actions">
+                        <button class="btn-continue" onclick="openSession('${session.id}')">
+                            <i class="fas fa-play"></i> Continue
+                        </button>
+                        <button class="btn-delete" onclick="deleteSession('${session.id}')">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </div>
+            `).join('');
+
+            // Add new session card at the end
+            const newSessionCard = `
+                <div class="session-card new-session-card" onclick="newSession()">
+                    <div class="new-session-icon">
+                        <i class="fas fa-plus-circle"></i>
+                    </div>
+                    <div class="new-session-title">New Chat</div>
+                    <div class="new-session-desc">Start a fresh conversation with the AI assistant</div>
+                </div>
+            `;
+
+            container.innerHTML = sessionCards + newSessionCard;
+        }
+
+        function openSession(sessionId) {
+            window.location.href = `/chat.html?session=${sessionId}`;
+        }
+
+        function newSession() {
+            console.log('Creating new session...');
+            // Generate a new UUID (or let the server generate)
+            const newId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+            console.log('Generated session ID:', newId);
+            window.location.href = `/chat.html?session=${newId}`;
+        }
+
+        async function deleteSession(sessionId) {
+            if (!confirm('Are you sure you want to delete this session? All messages will be lost.')) {
+                return;
+            }
+            try {
+                const response = await fetch(`/api/sessions/${sessionId}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    throw new Error(`Delete failed: ${response.status}`);
+                }
+                loadSessions(); // reload list
+            } catch (error) {
+                alert('Failed to delete session: ' + error.message);
+            }
+        }
+
+        // Load sessions on page load
+        document.addEventListener('DOMContentLoaded', loadSessions);
+    </script>
 </body>
 </html>

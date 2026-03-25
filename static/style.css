@@ -328,6 +328,66 @@ footer a:hover {
     text-decoration: underline;
 }
 
+/* Floating Action Button */
+.fab {
+    position: fixed;
+    bottom: 30px;
+    right: 30px;
+    width: 60px;
+    height: 60px;
+    border-radius: 50%;
+    background: linear-gradient(135deg, #3b82f6, #8b5cf6);
+    color: white;
+    border: none;
+    box-shadow: 0 6px 20px rgba(59, 130, 246, 0.5);
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 1.8rem;
+    transition: all 0.3s ease;
+    z-index: 1000;
+}
+.fab:hover {
+    transform: scale(1.1);
+    box-shadow: 0 8px 25px rgba(59, 130, 246, 0.7);
+}
+.fab:active {
+    transform: scale(0.95);
+}
+
+/* Toast notification */
+.toast {
+    position: fixed;
+    bottom: 100px;
+    right: 30px;
+    background: #10b981;
+    color: white;
+    padding: 12px 20px;
+    border-radius: 10px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    z-index: 1001;
+    opacity: 0;
+    transform: translateY(20px);
+    transition: opacity 0.3s, transform 0.3s;
+}
+.toast.show {
+    opacity: 1;
+    transform: translateY(0);
+}
+.toast.error {
+    background: #ef4444;
+}
+.toast.info {
+    background: #3b82f6;
+}
+.toast i {
+    font-size: 1.2rem;
+}
+
 /* Responsive */
 @media (max-width: 900px) {
     main {
@@ -338,5 +398,17 @@ footer a:hover {
     }
     header h1 {
         font-size: 2rem;
+    }
+    .fab {
+        bottom: 20px;
+        right: 20px;
+        width: 50px;
+        height: 50px;
+        font-size: 1.5rem;
+    }
+    .toast {
+        bottom: 80px;
+        right: 20px;
+        max-width: calc(100% - 40px);
     }
 }

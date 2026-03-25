@@ -14,6 +14,113 @@ Serves the web interface (HTML, CSS, JavaScript).
 
 ---
 
+### `GET /api/sessions`
+
+Returns a list of all conversation sessions, ordered by creation time (newest first).
+
+#### Response
+
+**Success (200 OK)**
+
+```json
+[
+  {
+    "id": "string",
+    "last_message": "string",
+    "updated_at": "ISO 8601 timestamp or null"
+  },
+  ...
+]
+```
+
+- `id`: Session identifier.
+- `last_message`: Content of the most recent message in the session (or empty string).
+- `updated_at`: Timestamp of the last update (if available).
+
+**Error Responses**
+
+| Status Code | Description          | Example Body                          |
+|-------------|----------------------|---------------------------------------|
+| 500         | Internal server error | `{"error":"Internal server error"}`   |
+
+#### Example
+
+```bash
+curl http://localhost:8080/api/sessions
+```
+
+---
+
+### `GET /api/sessions/{id}`
+
+Returns the full conversation history for a specific session.
+
+#### Path Parameters
+
+- `id` (required) – Session identifier (UUID).
+
+#### Response
+
+**Success (200 OK)**
+
+```json
+{
+  "id": "string",
+  "history": [
+    {
+      "role": "user|assistant",
+      "content": "string"
+    }
+  ]
+}
+```
+
+- `history`: Array of messages in chronological order.
+
+**Error Responses**
+
+| Status Code | Description          | Example Body                          |
+|-------------|----------------------|---------------------------------------|
+| 404         | Session not found    | `{"error":"Session not found"}`       |
+| 500         | Internal server error | `{"error":"Internal server error"}`   |
+
+#### Example
+
+```bash
+curl http://localhost:8080/api/sessions/abc123
+```
+
+---
+
+### `DELETE /api/sessions/{id}`
+
+Deletes a session and all its messages.
+
+#### Path Parameters
+
+- `id` (required) – Session identifier (UUID).
+
+#### Response
+
+**Success (204 No Content)**
+
+No body.
+
+**Error Responses**
+
+| Status Code | Description          | Example Body                          |
+|-------------|----------------------|---------------------------------------|
+| 404         | Session not found    | `{"error":"Session not found"}`       |
+| 500         | Internal server error | `{"error":"Internal server error"}`   |
+
+#### Example
+
+```bash
+curl -X DELETE http://localhost:8080/api/sessions/abc123
+```
+
+---
+
 ### `POST /api/chat`
 
 Processes a user message and returns the AI assistant's response.
@@ -85,6 +192,7 @@ curl -X POST http://localhost:8080/api/chat \
 - The server keeps the full history of each session; there is no automatic truncation.
 - To start a fresh conversation, provide a new `session_id`.
 - The web interface automatically generates a UUID for the session and stores it in the browser's local storage, allowing the user to resume the same conversation across page reloads.
+- The new landing page (`/`) provides a list of previous sessions and the ability to create a new session.
 
 ## Database
 
@@ -136,3 +244,12 @@ curl -X POST http://localhost:8080/api/chat \
 
 # Response
 {"response":"The capital of France is Paris.","session_id":"test-1"}
+
+# List sessions
+curl http://localhost:8080/api/sessions
+
+# Get session history
+curl http://localhost:8080/api/sessions/test-1
+
+# Delete a session
+curl -X DELETE http://localhost:8080/api/sessions/test-1

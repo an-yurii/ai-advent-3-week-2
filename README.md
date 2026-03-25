@@ -6,7 +6,8 @@ A client‑server application with an AI agent that interacts with GigaChat API.
 
 - **Go backend** – HTTP server with routing, session management, and logging.
 - **AI Agent** – Encapsulated logic for communicating with GigaChat API.
-- **Web interface** – Modern, responsive UI with real‑time chat.
+- **Web interface** – Modern, responsive UI with real‑time chat, landing page for session selection, and ability to load previous conversations.
+- **Enhanced dialog creation** – Improved UI/UX for starting new chats, featuring a floating action button, visual feedback, and toast notifications.
 - **Persistent storage** – PostgreSQL database for conversation history, surviving server restarts.
 - **Session‑based history** – Full history per user with ability to load previous dialogs.
 - **Structured logging** – Detailed logs with millisecond precision.
