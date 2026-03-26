@@ -189,7 +189,7 @@ curl -X POST http://localhost:8080/api/chat \
 
 - Each `session_id` maps to an independent conversation history.
 - History is **persisted in a PostgreSQL database** and survives server restarts.
-- The server keeps the full history of each session; there is no automatic truncation.
+- The server keeps the full history of each session; however, when the number of messages exceeds `HISTORY_MAX_MESSAGES` (configurable via environment variable), older messages are automatically summarized into a single system message to reduce length. The summary and a notification message appear in the history.
 - To start a fresh conversation, provide a new `session_id`.
 - The web interface automatically generates a UUID for the session and stores it in the browser's local storage, allowing the user to resume the same conversation across page reloads.
 - The new landing page (`/`) provides a list of previous sessions and the ability to create a new session.

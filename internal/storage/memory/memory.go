@@ -88,6 +88,22 @@ func (m *MemoryStorage) ListSessions() ([]string, error) {
 	return ids, nil
 }
 
+// ReplaceHistory replaces the entire message history of a session with the given messages.
+func (m *MemoryStorage) ReplaceHistory(sessionID string, messages []storage.Message) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, exists := m.sessions[sessionID]
+	if !exists {
+		return storage.ErrSessionNotFound
+	}
+	// Create a copy of the slice to avoid external modifications
+	newHistory := make([]storage.Message, len(messages))
+	copy(newHistory, messages)
+	session.History = newHistory
+	session.UpdatedAt = time.Now()
+	return nil
+}
+
 // Close releases any resources held by the storage (no‑op for memory).
 func (m *MemoryStorage) Close() error {
 	return nil

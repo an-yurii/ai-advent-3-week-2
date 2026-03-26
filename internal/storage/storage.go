@@ -42,6 +42,10 @@ type Storage interface {
 	// ListSessions returns a list of all session IDs, ordered by creation time (newest first).
 	ListSessions() ([]string, error)
 
+	// ReplaceHistory replaces the entire message history of a session with the given messages.
+	// The session must exist; if not, ErrSessionNotFound is returned.
+	ReplaceHistory(sessionID string, messages []Message) error
+
 	// Close releases any resources held by the storage.
 	Close() error
 }

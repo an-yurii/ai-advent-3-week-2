@@ -240,6 +240,55 @@ func (s *PostgresStorage) ListSessions() ([]string, error) {
 	return ids, nil
 }
 
+// ReplaceHistory replaces the entire message history of a session with the given messages.
+func (s *PostgresStorage) ReplaceHistory(sessionID string, messages []storage.Message) error {
+	ctx := context.Background()
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Check that session exists
+	var exists bool
+	err = tx.QueryRow(ctx, `SELECT EXISTS(SELECT 1 FROM sessions WHERE id = $1)`, sessionID).Scan(&exists)
+	if err != nil {
+		return fmt.Errorf("failed to check session existence: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("session %s does not exist", sessionID)
+	}
+
+	// Delete all existing messages for this session
+	_, err = tx.Exec(ctx, `DELETE FROM messages WHERE session_id = $1`, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to delete old messages: %w", err)
+	}
+
+	// Insert new messages with sequential order
+	for i, msg := range messages {
+		seq := i + 1
+		_, err = tx.Exec(ctx,
+			`INSERT INTO messages (session_id, role, content, sequence, prompt_tokens, completion_tokens, total_tokens)
+			 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+			sessionID, msg.Role, msg.Content, seq, msg.PromptTokens, msg.CompletionTokens, msg.TotalTokens)
+		if err != nil {
+			return fmt.Errorf("failed to insert message %d: %w", i, err)
+		}
+	}
+
+	// Update session's updated_at timestamp
+	_, err = tx.Exec(ctx, `UPDATE sessions SET updated_at = NOW() WHERE id = $1`, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to update session timestamp: %w", err)
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
 // Close releases the connection pool.
 func (s *PostgresStorage) Close() error {
 	s.pool.Close()

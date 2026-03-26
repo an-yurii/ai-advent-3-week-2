@@ -2,17 +2,50 @@ package agent
 
 import (
 	"errors"
+	"os"
+	"strconv"
+	"strings"
 
 	"ai-agent-gigachat/internal/logging"
 	"ai-agent-gigachat/internal/storage"
 	"ai-agent-gigachat/internal/storage/memory"
 )
 
+// HistoryConfig holds configuration for history compression.
+type HistoryConfig struct {
+	MaxMessages   int    // HISTORY_MAX_MESSAGES
+	SummaryPrompt string // content of prompt file
+}
+
+// loadHistoryConfig reads environment variables and returns a HistoryConfig.
+func loadHistoryConfig() HistoryConfig {
+	maxMessages := 0
+	if s := os.Getenv("HISTORY_MAX_MESSAGES"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			maxMessages = v
+		}
+	}
+	prompt := defaultSummaryPrompt
+	if path := os.Getenv("HISTORY_SUMMARY_PROMPT_FILE"); path != "" {
+		if data, err := os.ReadFile(path); err == nil {
+			prompt = strings.TrimSpace(string(data))
+		}
+		// If file reading fails, keep default (no error logging for now)
+	}
+	return HistoryConfig{
+		MaxMessages:   maxMessages,
+		SummaryPrompt: prompt,
+	}
+}
+
+const defaultSummaryPrompt = "Summarize the following conversation concisely, preserving key points and decisions:"
+
 // Agent is the main AI agent that manages sessions and communicates with GigaChat.
 type Agent struct {
-	client  *GigaChatClient
-	storage storage.Storage
-	logger  *logging.Logger
+	client        *GigaChatClient
+	storage       storage.Storage
+	logger        *logging.Logger
+	historyConfig HistoryConfig
 }
 
 // NewAgent creates a new Agent with the given API key and optional storage.
@@ -25,9 +58,10 @@ func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
 		store = memory.New()
 	}
 	return &Agent{
-		client:  NewGigaChatClient(apiKey),
-		storage: store,
-		logger:  logging.Default(),
+		client:        NewGigaChatClient(apiKey),
+		storage:       store,
+		logger:        logging.Default(),
+		historyConfig: loadHistoryConfig(),
 	}
 }
 
@@ -65,6 +99,18 @@ func toAgentSession(s *storage.Session) *Session {
 	return &Session{ID: s.ID, History: history}
 }
 
+// summarizeMessages sends the given messages to GigaChat with a summarization prompt and returns the summary text.
+func (a *Agent) summarizeMessages(messages []Message) (string, error) {
+	// Build request: original messages plus a user message with the summarization prompt
+	summaryPrompt := a.historyConfig.SummaryPrompt
+	requestMessages := append(messages, Message{Role: "user", Content: summaryPrompt})
+	result, err := a.client.SendMessage(requestMessages)
+	if err != nil {
+		return "", err
+	}
+	return result.Content, nil
+}
+
 // SendMessage processes a user message for a given session ID and returns the assistant's response and token usage.
 func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, error) {
 	// Ensure session exists
@@ -95,7 +141,42 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		history[i] = toAgentMessage(m)
 	}
 
-	// Send the whole history to GigaChat
+	// Apply history compression if needed
+	if a.historyConfig.MaxMessages > 0 && len(history) > a.historyConfig.MaxMessages {
+		// Keep the last message (the user's current message) as is
+		if len(history) < 2 {
+			// Should not happen because we have at least the user message and maybe earlier messages
+			a.logger.LogError(nil, "history length too short for compression", "session_id", sessionID)
+		} else {
+			lastMessage := history[len(history)-1]
+			olderMessages := history[:len(history)-1]
+
+			// Summarize older messages
+			summaryText, err := a.summarizeMessages(olderMessages)
+			if err != nil {
+				a.logger.LogError(err, "failed to summarize history, proceeding with original history")
+			} else {
+				// Build new history: combined summary (as system message) and last message
+				combinedContent := summaryText + "\n\n(History has been summarized to reduce length.)"
+				summaryMsg := Message{Role: "system", Content: combinedContent}
+				newHistory := []Message{summaryMsg, lastMessage}
+
+				// Convert to storage messages and replace session history
+				storageMessages := make([]storage.Message, len(newHistory))
+				for i, msg := range newHistory {
+					storageMessages[i] = toStorageMessage(msg)
+				}
+				if err := a.storage.ReplaceHistory(sessionID, storageMessages); err != nil {
+					a.logger.LogError(err, "failed to replace history after summarization")
+				} else {
+					// Update local history for the upcoming request
+					history = newHistory
+				}
+			}
+		}
+	}
+
+	// Send the (possibly compressed) history to GigaChat
 	result, err := a.client.SendMessage(history)
 	if err != nil {
 		return nil, err

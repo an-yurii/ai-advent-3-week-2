@@ -10,6 +10,7 @@ A client‑server application with an AI agent that interacts with GigaChat API.
 - **Enhanced dialog creation** – Improved UI/UX for starting new chats, featuring a floating action button, visual feedback, and toast notifications.
 - **Persistent storage** – PostgreSQL database for conversation history, surviving server restarts.
 - **Session‑based history** – Full history per user with ability to load previous dialogs.
+- **History compression** – Automatically summarize older messages when history exceeds a configurable limit, keeping recent messages intact.
 - **Structured logging** – Detailed logs with millisecond precision.
 - **Dockerized** – Easy deployment with Docker Compose (includes PostgreSQL).
 - **Database migration** – Automatic schema creation on first launch.
@@ -110,6 +111,15 @@ The application uses PostgreSQL to store conversation history. Each session and 
 
 Migrations are applied automatically on startup via `CREATE TABLE IF NOT EXISTS`.
 
+### History Compression
+
+To prevent conversation history from growing indefinitely, the agent can automatically summarize older messages when the total number of messages exceeds a configurable limit.
+
+- **Configuration**: Set `HISTORY_MAX_MESSAGES` (integer) to the maximum number of messages allowed per session. If set to 0 (default), compression is disabled.
+- **Summarization prompt**: Provide a custom prompt via a file specified in `HISTORY_SUMMARY_PROMPT_FILE`. If not set, a default prompt is used.
+- **Behavior**: When a new user message would cause the history to exceed the limit, the agent summarizes all older messages (excluding the current user message) into a single summary message (role `system`). The summary replaces the older messages, and a notification message is added. The conversation continues with the summary as context.
+- **Notification**: A system message "History has been summarized to reduce length." appears in the chat UI.
+
 ### Storage Interface
 
 The agent uses a pluggable storage interface (`storage.Storage`). Two implementations are provided:
@@ -127,6 +137,8 @@ The agent uses a pluggable storage interface (`storage.Storage`). Two implementa
 | `DB_USER`            | PostgreSQL user                     | No       | `postgres`       |
 | `DB_PASSWORD`        | PostgreSQL password                 | No       | `postgres`       |
 | `DB_NAME`            | PostgreSQL database name            | No       | `ai_agent`       |
+| `HISTORY_MAX_MESSAGES` | Maximum number of messages per session before compression triggers (0 = disabled) | No | 0 |
+| `HISTORY_SUMMARY_PROMPT_FILE` | Path to a file containing a custom summarization prompt | No | (uses default prompt) |
 
 When running with Docker Compose, all database variables are set automatically; you only need to provide `DB_PASSWORD` if you wish to change it.
 
