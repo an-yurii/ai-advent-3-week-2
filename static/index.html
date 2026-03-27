@@ -187,6 +187,22 @@
                     <p>Select a previous session or create a new one</p>
                 </div>
 
+                <div class="strategy-selector card" style="margin-bottom: 1.5rem;">
+                    <h3><i class="fas fa-cog"></i> Context Management Strategy</h3>
+                    <p>Choose how to manage long conversation history:</p>
+                    <div style="display: flex; gap: 1rem; align-items: center;">
+                        <label for="strategy">Strategy:</label>
+                        <select id="strategy" style="padding: 0.5rem; border-radius: 6px; background: #1e293b; color: white; border: 1px solid #475569;">
+                            <option value="summary">Summary (default)</option>
+                            <option value="sliding_window">Sliding Window</option>
+                        </select>
+                        <button id="save-strategy" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;">Save</button>
+                    </div>
+                    <p style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem;">
+                        The selected strategy will be applied to new chats and remembered across page reloads.
+                    </p>
+                </div>
+
                 <div class="sessions-list" id="sessions-list">
                     <!-- Sessions will be populated by JavaScript -->
                     <div class="empty-state">
@@ -306,8 +322,46 @@
             }
         }
 
+        // Strategy management
+        const STRATEGY_STORAGE_KEY = 'contextStrategy';
+
+        function loadStrategy() {
+            const saved = localStorage.getItem(STRATEGY_STORAGE_KEY);
+            const select = document.getElementById('strategy');
+            if (saved && (saved === 'summary' || saved === 'sliding_window')) {
+                select.value = saved;
+            } else {
+                select.value = 'summary';
+                localStorage.setItem(STRATEGY_STORAGE_KEY, 'summary');
+            }
+        }
+
+        function saveStrategy() {
+            const select = document.getElementById('strategy');
+            const strategy = select.value;
+            localStorage.setItem(STRATEGY_STORAGE_KEY, strategy);
+            alert('Strategy saved!');
+        }
+
+        function newSession() {
+            console.log('Creating new session...');
+            // Generate a new UUID (or let the server generate)
+            const newId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+            console.log('Generated session ID:', newId);
+            const strategy = localStorage.getItem(STRATEGY_STORAGE_KEY) || 'summary';
+            window.location.href = `/chat.html?session=${newId}&strategy=${strategy}`;
+        }
+
         // Load sessions on page load
-        document.addEventListener('DOMContentLoaded', loadSessions);
+        document.addEventListener('DOMContentLoaded', () => {
+            loadStrategy();
+            loadSessions();
+            document.getElementById('save-strategy').addEventListener('click', saveStrategy);
+        });
     </script>
 </body>
 </html>

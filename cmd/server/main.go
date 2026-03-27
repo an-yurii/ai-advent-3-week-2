@@ -89,6 +89,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		Message   string `json:"message"`
 		SessionID string `json:"session_id"`
+		Strategy  string `json:"strategy,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -97,6 +98,20 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	if req.Message == "" || req.SessionID == "" {
 		http.Error(w, "Missing 'message' or 'session_id'", http.StatusBadRequest)
 		return
+	}
+
+	// Update session strategy if provided and valid
+	if req.Strategy != "" && (req.Strategy == storage.StrategySummary || req.Strategy == storage.StrategySlidingWindow) {
+		// Ensure session exists (idempotent)
+		if err := store.CreateSession(req.SessionID); err != nil {
+			log.Printf("Failed to create session for strategy update: %v", err)
+			// Continue anyway, SendMessage will also try to create
+		} else {
+			if err := store.UpdateStrategy(req.SessionID, req.Strategy); err != nil {
+				log.Printf("Failed to update session strategy: %v", err)
+				// Non‑fatal, proceed with existing strategy
+			}
+		}
 	}
 
 	result, err := aiAgent.SendMessage(req.SessionID, req.Message)
@@ -146,6 +161,7 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 		sessions = append(sessions, map[string]interface{}{
 			"id":           id,
 			"last_message": lastMessage,
+			"strategy":     session.Strategy,
 			"updated_at":   session.UpdatedAt,
 			"created_at":   session.CreatedAt,
 		})

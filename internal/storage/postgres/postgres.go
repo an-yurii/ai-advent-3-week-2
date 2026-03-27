@@ -51,7 +51,8 @@ func (s *PostgresStorage) migrate(ctx context.Context) error {
 		CREATE TABLE IF NOT EXISTS sessions (
 			id UUID PRIMARY KEY,
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			strategy TEXT DEFAULT 'summary'
 		);
 
 		CREATE TABLE IF NOT EXISTS messages (
@@ -79,6 +80,9 @@ func (s *PostgresStorage) migrate(ctx context.Context) error {
 		ADD COLUMN IF NOT EXISTS prompt_tokens INTEGER DEFAULT 0,
 		ADD COLUMN IF NOT EXISTS completion_tokens INTEGER DEFAULT 0,
 		ADD COLUMN IF NOT EXISTS total_tokens INTEGER DEFAULT 0;
+
+		ALTER TABLE sessions
+		ADD COLUMN IF NOT EXISTS strategy TEXT DEFAULT 'summary';
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to add token columns: %w", err)
@@ -93,9 +97,10 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 
 	// First, check if session exists and get its metadata
 	var createdAt, updatedAt time.Time
+	var strategy string
 	err := s.pool.QueryRow(ctx,
-		`SELECT created_at, updated_at FROM sessions WHERE id = $1`, id).
-		Scan(&createdAt, &updatedAt)
+		`SELECT created_at, updated_at, strategy FROM sessions WHERE id = $1`, id).
+		Scan(&createdAt, &updatedAt, &strategy)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -136,6 +141,7 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 	return &storage.Session{
 		ID:        id,
 		History:   history,
+		Strategy:  strategy,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}, nil
@@ -285,6 +291,18 @@ func (s *PostgresStorage) ReplaceHistory(sessionID string, messages []storage.Me
 
 	if err := tx.Commit(ctx); err != nil {
 		return fmt.Errorf("failed to commit transaction: %w", err)
+	}
+	return nil
+}
+
+// UpdateStrategy updates the context management strategy for a session.
+func (s *PostgresStorage) UpdateStrategy(sessionID string, strategy string) error {
+	ctx := context.Background()
+	_, err := s.pool.Exec(ctx,
+		`UPDATE sessions SET strategy = $1, updated_at = NOW() WHERE id = $2`,
+		strategy, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to update strategy: %w", err)
 	}
 	return nil
 }

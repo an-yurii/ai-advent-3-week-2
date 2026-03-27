@@ -14,10 +14,17 @@ type Message struct {
 	TotalTokens      int    `json:"total_tokens,omitempty"`      // total tokens (prompt + completion)
 }
 
+// Strategy constants
+const (
+	StrategySummary      = "summary"
+	StrategySlidingWindow = "sliding_window"
+)
+
 // Session holds the conversation history for a single user session.
 type Session struct {
 	ID        string
 	History   []Message
+	Strategy  string    // one of StrategySummary, StrategySlidingWindow
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -45,6 +52,10 @@ type Storage interface {
 	// ReplaceHistory replaces the entire message history of a session with the given messages.
 	// The session must exist; if not, ErrSessionNotFound is returned.
 	ReplaceHistory(sessionID string, messages []Message) error
+
+	// UpdateStrategy updates the context management strategy for a session.
+	// The session must exist; if not, ErrSessionNotFound is returned.
+	UpdateStrategy(sessionID string, strategy string) error
 
 	// Close releases any resources held by the storage.
 	Close() error

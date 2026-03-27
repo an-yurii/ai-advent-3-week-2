@@ -13,6 +13,20 @@ function getSessionIdFromUrl() {
     return params.get('session');
 }
 
+// Get strategy from URL query parameter, else localStorage, else default 'summary'
+function getStrategy() {
+    const params = new URLSearchParams(window.location.search);
+    const urlStrategy = params.get('strategy');
+    if (urlStrategy && (urlStrategy === 'summary' || urlStrategy === 'sliding_window')) {
+        return urlStrategy;
+    }
+    const saved = localStorage.getItem('contextStrategy');
+    if (saved && (saved === 'summary' || saved === 'sliding_window')) {
+        return saved;
+    }
+    return 'summary';
+}
+
 let sessionId = getSessionIdFromUrl();
 if (!sessionId) {
     sessionId = localStorage.getItem('sessionId');
@@ -123,7 +137,8 @@ async function sendMessage() {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
                 message: text,
-                session_id: sessionId
+                session_id: sessionId,
+                strategy: getStrategy()
             })
         });
 
@@ -189,9 +204,11 @@ function newSession() {
         addMessage('system', 'New session started. Previous history is cleared on the server.');
         // Reset token counters
         updateTokenCounts(0, 0, 0);
-        // Update URL without reload
+        // Update URL without reload, include current strategy
         const url = new URL(window.location);
         url.searchParams.set('session', sessionId);
+        const strategy = getStrategy();
+        url.searchParams.set('strategy', strategy);
         window.history.pushState({}, '', url);
         showToast('New chat session created!', 'info');
     }

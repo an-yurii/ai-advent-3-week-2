@@ -34,6 +34,7 @@ func (m *MemoryStorage) GetSession(id string) (*storage.Session, error) {
 	return &storage.Session{
 		ID:        id,
 		History:   history,
+		Strategy:  session.Strategy,
 		CreatedAt: session.CreatedAt,
 		UpdatedAt: session.UpdatedAt,
 	}, nil
@@ -48,6 +49,7 @@ func (m *MemoryStorage) CreateSession(id string) error {
 		m.sessions[id] = &storage.Session{
 			ID:        id,
 			History:   []storage.Message{},
+			Strategy:  storage.StrategySummary,
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -100,6 +102,19 @@ func (m *MemoryStorage) ReplaceHistory(sessionID string, messages []storage.Mess
 	newHistory := make([]storage.Message, len(messages))
 	copy(newHistory, messages)
 	session.History = newHistory
+	session.UpdatedAt = time.Now()
+	return nil
+}
+
+// UpdateStrategy updates the context management strategy for a session.
+func (m *MemoryStorage) UpdateStrategy(sessionID string, strategy string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, exists := m.sessions[sessionID]
+	if !exists {
+		return storage.ErrSessionNotFound
+	}
+	session.Strategy = strategy
 	session.UpdatedAt = time.Now()
 	return nil
 }

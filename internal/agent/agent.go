@@ -13,8 +13,9 @@ import (
 
 // HistoryConfig holds configuration for history compression.
 type HistoryConfig struct {
-	MaxMessages   int    // HISTORY_MAX_MESSAGES
-	SummaryPrompt string // content of prompt file
+	MaxMessages       int    // HISTORY_MAX_MESSAGES
+	SummaryPrompt     string // content of prompt file
+	SlidingWindowSize int    // SLIDING_WINDOW_SIZE
 }
 
 // loadHistoryConfig reads environment variables and returns a HistoryConfig.
@@ -32,9 +33,16 @@ func loadHistoryConfig() HistoryConfig {
 		}
 		// If file reading fails, keep default (no error logging for now)
 	}
+	slidingWindowSize := 10 // default
+	if s := os.Getenv("SLIDING_WINDOW_SIZE"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil && v > 0 {
+			slidingWindowSize = v
+		}
+	}
 	return HistoryConfig{
-		MaxMessages:   maxMessages,
-		SummaryPrompt: prompt,
+		MaxMessages:       maxMessages,
+		SummaryPrompt:     prompt,
+		SlidingWindowSize: slidingWindowSize,
 	}
 }
 
@@ -96,7 +104,7 @@ func toAgentSession(s *storage.Session) *Session {
 	for i, m := range s.History {
 		history[i] = toAgentMessage(m)
 	}
-	return &Session{ID: s.ID, History: history}
+	return &Session{ID: s.ID, History: history, Strategy: s.Strategy}
 }
 
 // summarizeMessages sends the given messages to GigaChat with a summarization prompt and returns the summary text.
@@ -141,39 +149,67 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		history[i] = toAgentMessage(m)
 	}
 
-	// Apply history compression if needed
-	if a.historyConfig.MaxMessages > 0 && len(history) > a.historyConfig.MaxMessages {
-		// Keep the last message (the user's current message) as is
-		if len(history) < 2 {
-			// Should not happen because we have at least the user message and maybe earlier messages
-			a.logger.LogError(nil, "history length too short for compression", "session_id", sessionID)
-		} else {
-			lastMessage := history[len(history)-1]
-			olderMessages := history[:len(history)-1]
+	// Determine session strategy (default to summary)
+	strategy := storageSession.Strategy
+	if strategy == "" {
+		strategy = storage.StrategySummary
+	}
 
-			// Summarize older messages
-			summaryText, err := a.summarizeMessages(olderMessages)
-			if err != nil {
-				a.logger.LogError(err, "failed to summarize history, proceeding with original history")
+	// Apply history compression based on strategy
+	switch strategy {
+	case storage.StrategySummary:
+		if a.historyConfig.MaxMessages > 0 && len(history) > a.historyConfig.MaxMessages {
+			// Keep the last message (the user's current message) as is
+			if len(history) < 2 {
+				// Should not happen because we have at least the user message and maybe earlier messages
+				a.logger.LogError(nil, "history length too short for compression", "session_id", sessionID)
 			} else {
-				// Build new history: combined summary (as system message) and last message
-				combinedContent := summaryText + "\n\n(History has been summarized to reduce length.)"
-				summaryMsg := Message{Role: "system", Content: combinedContent}
-				newHistory := []Message{summaryMsg, lastMessage}
+				lastMessage := history[len(history)-1]
+				olderMessages := history[:len(history)-1]
 
-				// Convert to storage messages and replace session history
-				storageMessages := make([]storage.Message, len(newHistory))
-				for i, msg := range newHistory {
-					storageMessages[i] = toStorageMessage(msg)
-				}
-				if err := a.storage.ReplaceHistory(sessionID, storageMessages); err != nil {
-					a.logger.LogError(err, "failed to replace history after summarization")
+				// Summarize older messages
+				summaryText, err := a.summarizeMessages(olderMessages)
+				if err != nil {
+					a.logger.LogError(err, "failed to summarize history, proceeding with original history")
 				} else {
-					// Update local history for the upcoming request
-					history = newHistory
+					// Build new history: combined summary (as system message) and last message
+					combinedContent := summaryText + "\n\n(History has been summarized to reduce length.)"
+					summaryMsg := Message{Role: "system", Content: combinedContent}
+					newHistory := []Message{summaryMsg, lastMessage}
+
+					// Convert to storage messages and replace session history
+					storageMessages := make([]storage.Message, len(newHistory))
+					for i, msg := range newHistory {
+						storageMessages[i] = toStorageMessage(msg)
+					}
+					if err := a.storage.ReplaceHistory(sessionID, storageMessages); err != nil {
+						a.logger.LogError(err, "failed to replace history after summarization")
+					} else {
+						// Update local history for the upcoming request
+						history = newHistory
+					}
 				}
 			}
 		}
+	case storage.StrategySlidingWindow:
+		windowSize := a.historyConfig.SlidingWindowSize
+		if windowSize > 0 && len(history) > windowSize {
+			// Keep only the last windowSize messages
+			truncated := history[len(history)-windowSize:]
+			// Convert to storage messages and replace session history
+			storageMessages := make([]storage.Message, len(truncated))
+			for i, msg := range truncated {
+				storageMessages[i] = toStorageMessage(msg)
+			}
+			if err := a.storage.ReplaceHistory(sessionID, storageMessages); err != nil {
+				a.logger.LogError(err, "failed to replace history after sliding window truncation")
+			} else {
+				// Update local history for the upcoming request
+				history = truncated
+			}
+		}
+	default:
+		a.logger.LogError(nil, "unknown strategy, using default (summary)", "strategy", strategy)
 	}
 
 	// Send the (possibly compressed) history to GigaChat
