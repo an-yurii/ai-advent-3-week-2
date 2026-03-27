@@ -76,6 +76,7 @@ async function loadSessionHistory() {
             throw new Error(`HTTP ${response.status}: ${await response.text()}`);
         }
         const session = await response.json();
+        console.log('Loaded session:', session);
         if (session.history && session.history.length > 0) {
             // Clear the default system message
             chatMessages.innerHTML = '';

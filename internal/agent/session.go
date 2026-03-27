@@ -11,8 +11,8 @@ type Message struct {
 
 // Session holds the conversation history for a single user session.
 type Session struct {
-	ID      string
-	History []Message
+	ID      string    `json:"id"`
+	History []Message `json:"history"`
 }
 
 // NewSession creates a new session with the given ID.
