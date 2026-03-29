@@ -12,11 +12,14 @@ services:
       - DB_NAME=ai_agent
       - HISTORY_MAX_MESSAGES=${HISTORY_MAX_MESSAGES:-0}
       - HISTORY_SUMMARY_PROMPT_FILE=${HISTORY_SUMMARY_PROMPT_FILE:-}
+      - STICKY_FACTS_WINDOW_SIZE=${STICKY_FACTS_WINDOW_SIZE:-10}
+      - STICKY_FACTS_EXTRACTION_PROMPT_FILE=${STICKY_FACTS_EXTRACTION_PROMPT_FILE:-}
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./static:/app/static
+      - ./prompts:/app/prompts
     networks:
       - app_network
 

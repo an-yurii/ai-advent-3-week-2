@@ -195,6 +195,7 @@
                         <select id="strategy" style="padding: 0.5rem; border-radius: 6px; background: #1e293b; color: white; border: 1px solid #475569;">
                             <option value="summary">Summary (default)</option>
                             <option value="sliding_window">Sliding Window</option>
+                            <option value="sticky_facts">Sticky Facts</option>
                         </select>
                         <button id="save-strategy" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;">Save</button>
                     </div>
@@ -328,7 +329,7 @@
         function loadStrategy() {
             const saved = localStorage.getItem(STRATEGY_STORAGE_KEY);
             const select = document.getElementById('strategy');
-            if (saved && (saved === 'summary' || saved === 'sliding_window')) {
+            if (saved && (saved === 'summary' || saved === 'sliding_window' || saved === 'sticky_facts')) {
                 select.value = saved;
             } else {
                 select.value = 'summary';

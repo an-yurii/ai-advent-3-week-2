@@ -101,7 +101,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Update session strategy if provided and valid
-	if req.Strategy != "" && (req.Strategy == storage.StrategySummary || req.Strategy == storage.StrategySlidingWindow) {
+	if req.Strategy != "" && (req.Strategy == storage.StrategySummary || req.Strategy == storage.StrategySlidingWindow || req.Strategy == storage.StrategyStickyFacts) {
 		// Ensure session exists (idempotent)
 		if err := store.CreateSession(req.SessionID); err != nil {
 			log.Printf("Failed to create session for strategy update: %v", err)

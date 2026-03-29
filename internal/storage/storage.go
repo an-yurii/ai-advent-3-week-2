@@ -18,13 +18,15 @@ type Message struct {
 const (
 	StrategySummary      = "summary"
 	StrategySlidingWindow = "sliding_window"
+	StrategyStickyFacts  = "sticky_facts"
 )
 
 // Session holds the conversation history for a single user session.
 type Session struct {
 	ID        string
 	History   []Message
-	Strategy  string    // one of StrategySummary, StrategySlidingWindow
+	Strategy  string    // one of StrategySummary, StrategySlidingWindow, StrategyStickyFacts
+	Facts     map[string]string // key‑value facts extracted from conversation
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -56,6 +58,10 @@ type Storage interface {
 	// UpdateStrategy updates the context management strategy for a session.
 	// The session must exist; if not, ErrSessionNotFound is returned.
 	UpdateStrategy(sessionID string, strategy string) error
+
+	// UpdateFacts updates the facts map for a session.
+	// The session must exist; if not, ErrSessionNotFound is returned.
+	UpdateFacts(sessionID string, facts map[string]string) error
 
 	// Close releases any resources held by the storage.
 	Close() error

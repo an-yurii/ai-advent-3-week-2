@@ -17,11 +17,11 @@ function getSessionIdFromUrl() {
 function getStrategy() {
     const params = new URLSearchParams(window.location.search);
     const urlStrategy = params.get('strategy');
-    if (urlStrategy && (urlStrategy === 'summary' || urlStrategy === 'sliding_window')) {
+    if (urlStrategy && (urlStrategy === 'summary' || urlStrategy === 'sliding_window' || urlStrategy === 'sticky_facts')) {
         return urlStrategy;
     }
     const saved = localStorage.getItem('contextStrategy');
-    if (saved && (saved === 'summary' || saved === 'sliding_window')) {
+    if (saved && (saved === 'summary' || saved === 'sliding_window' || saved === 'sticky_facts')) {
         return saved;
     }
     return 'summary';
