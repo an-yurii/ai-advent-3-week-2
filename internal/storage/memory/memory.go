@@ -31,10 +31,7 @@ func (m *MemoryStorage) GetSession(id string) (*storage.Session, error) {
 	// Return a copy to avoid accidental mutation
 	history := make([]storage.Message, len(session.History))
 	copy(history, session.History)
-	facts := make(map[string]string)
-	for k, v := range session.Facts {
-		facts[k] = v
-	}
+	facts := session.Facts // string copy
 	return &storage.Session{
 		ID:        id,
 		History:   history,
@@ -55,7 +52,7 @@ func (m *MemoryStorage) CreateSession(id string) error {
 			ID:        id,
 			History:   []storage.Message{},
 			Strategy:  storage.StrategySummary,
-			Facts:     make(map[string]string),
+			Facts:     "",
 			CreatedAt: now,
 			UpdatedAt: now,
 		}
@@ -125,20 +122,15 @@ func (m *MemoryStorage) UpdateStrategy(sessionID string, strategy string) error 
 	return nil
 }
 
-// UpdateFacts updates the facts map for a session.
-func (m *MemoryStorage) UpdateFacts(sessionID string, facts map[string]string) error {
+// UpdateFacts updates the facts text for a session.
+func (m *MemoryStorage) UpdateFacts(sessionID string, facts string) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	session, exists := m.sessions[sessionID]
 	if !exists {
 		return storage.ErrSessionNotFound
 	}
-	// Replace the entire facts map with a copy
-	newFacts := make(map[string]string)
-	for k, v := range facts {
-		newFacts[k] = v
-	}
-	session.Facts = newFacts
+	session.Facts = facts
 	session.UpdatedAt = time.Now()
 	return nil
 }

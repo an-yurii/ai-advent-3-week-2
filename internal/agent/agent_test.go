@@ -1,6 +1,7 @@
 package agent
 
 import (
+	"encoding/json"
 	"testing"
 
 	"ai-agent-gigachat/internal/storage/memory"
@@ -70,4 +71,58 @@ func TestAgentSessionManagement(t *testing.T) {
 
 	_ = response
 	_ = err
+}
+
+func TestCleanJSONResponse(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		expected string
+	}{
+		{
+			name:     "plain JSON",
+			input:    `{"key": "value"}`,
+			expected: `{"key": "value"}`,
+		},
+		{
+			name:     "with code fences and language",
+			input:    "```json\n{\"key\": \"value\"}\n```",
+			expected: `{"key": "value"}`,
+		},
+		{
+			name:     "with code fences no language",
+			input:    "```\n{\"key\": \"value\"}\n```",
+			expected: `{"key": "value"}`,
+		},
+		{
+			name:     "extra whitespace",
+			input:    "  ```json\n{\"key\": \"value\"}\n```  ",
+			expected: `{"key": "value"}`,
+		},
+		{
+			name:     "no closing fence",
+			input:    "```json\n{\"key\": \"value\"}",
+			expected: `{"key": "value"}`,
+		},
+		{
+			name:     "multiple lines inside",
+			input:    "```json\n{\n  \"key\": \"value\"\n}\n```",
+			expected: "{\n  \"key\": \"value\"\n}",
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := cleanJSONResponse(tt.input)
+			if got != tt.expected {
+				t.Errorf("cleanJSONResponse() = %q, want %q", got, tt.expected)
+			}
+			// Ensure the result is valid JSON (if non-empty)
+			if got != "" {
+				var m map[string]interface{}
+				if err := json.Unmarshal([]byte(got), &m); err != nil {
+					t.Errorf("cleaned output is not valid JSON: %v", err)
+				}
+			}
+		})
+	}
 }

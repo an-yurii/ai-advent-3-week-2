@@ -26,7 +26,7 @@ type Session struct {
 	ID        string
 	History   []Message
 	Strategy  string    // one of StrategySummary, StrategySlidingWindow, StrategyStickyFacts
-	Facts     map[string]string // key‑value facts extracted from conversation
+	Facts     string // plain text facts extracted from conversation
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -59,9 +59,9 @@ type Storage interface {
 	// The session must exist; if not, ErrSessionNotFound is returned.
 	UpdateStrategy(sessionID string, strategy string) error
 
-	// UpdateFacts updates the facts map for a session.
+	// UpdateFacts updates the facts text for a session.
 	// The session must exist; if not, ErrSessionNotFound is returned.
-	UpdateFacts(sessionID string, facts map[string]string) error
+	UpdateFacts(sessionID string, facts string) error
 
 	// Close releases any resources held by the storage.
 	Close() error

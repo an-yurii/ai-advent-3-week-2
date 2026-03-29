@@ -2,7 +2,6 @@ package postgres
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 	"time"
 
@@ -54,7 +53,7 @@ func (s *PostgresStorage) migrate(ctx context.Context) error {
 			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
 			strategy TEXT DEFAULT 'summary',
-			facts JSONB DEFAULT '{}'::jsonb
+			facts TEXT DEFAULT ''
 		);
 
 		CREATE TABLE IF NOT EXISTS messages (
@@ -85,7 +84,7 @@ func (s *PostgresStorage) migrate(ctx context.Context) error {
 
 		ALTER TABLE sessions
 		ADD COLUMN IF NOT EXISTS strategy TEXT DEFAULT 'summary',
-		ADD COLUMN IF NOT EXISTS facts JSONB DEFAULT '{}'::jsonb;
+		ADD COLUMN IF NOT EXISTS facts TEXT DEFAULT '';
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to add token columns: %w", err)
@@ -101,24 +100,15 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 	// First, check if session exists and get its metadata
 	var createdAt, updatedAt time.Time
 	var strategy string
-	var factsData []byte
+	var factsText string
 	err := s.pool.QueryRow(ctx,
 		`SELECT created_at, updated_at, strategy, facts FROM sessions WHERE id = $1`, id).
-		Scan(&createdAt, &updatedAt, &strategy, &factsData)
+		Scan(&createdAt, &updatedAt, &strategy, &factsText)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
 	if err != nil {
 		return nil, fmt.Errorf("failed to query session: %w", err)
-	}
-
-	// Parse facts JSON
-	facts := make(map[string]string)
-	if len(factsData) > 0 {
-		if err := json.Unmarshal(factsData, &facts); err != nil {
-			// If JSON is invalid, treat as empty facts (log maybe)
-			facts = make(map[string]string)
-		}
 	}
 
 	// Fetch messages ordered by sequence
@@ -155,7 +145,7 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 		ID:        id,
 		History:   history,
 		Strategy:  strategy,
-		Facts:     facts,
+		Facts:     factsText,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}, nil
@@ -321,16 +311,12 @@ func (s *PostgresStorage) UpdateStrategy(sessionID string, strategy string) erro
 	return nil
 }
 
-// UpdateFacts updates the facts map for a session.
-func (s *PostgresStorage) UpdateFacts(sessionID string, facts map[string]string) error {
+// UpdateFacts updates the facts text for a session.
+func (s *PostgresStorage) UpdateFacts(sessionID string, facts string) error {
 	ctx := context.Background()
-	factsJSON, err := json.Marshal(facts)
-	if err != nil {
-		return fmt.Errorf("failed to marshal facts: %w", err)
-	}
-	_, err = s.pool.Exec(ctx,
+	_, err := s.pool.Exec(ctx,
 		`UPDATE sessions SET facts = $1, updated_at = NOW() WHERE id = $2`,
-		factsJSON, sessionID)
+		facts, sessionID)
 	if err != nil {
 		return fmt.Errorf("failed to update facts: %w", err)
 	}

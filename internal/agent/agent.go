@@ -1,9 +1,7 @@
 package agent
 
 import (
-	"encoding/json"
 	"errors"
-	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -66,7 +64,7 @@ func loadHistoryConfig() HistoryConfig {
 }
 
 const defaultSummaryPrompt = "Summarize the following conversation concisely, preserving key points and decisions:"
-const defaultStickyFactsPrompt = "Extract key facts from the conversation as JSON key-value pairs. Output only valid JSON."
+const defaultStickyFactsPrompt = "Extract key facts from the conversation as plain text. Output each fact on a new line."
 
 // Agent is the main AI agent that manages sessions and communicates with GigaChat.
 type Agent struct {
@@ -139,22 +137,43 @@ func (a *Agent) summarizeMessages(messages []Message) (string, error) {
 	return result.Content, nil
 }
 
-// extractFacts sends the given messages to GigaChat with a fact extraction prompt and returns a map of facts.
-func (a *Agent) extractFacts(messages []Message) (map[string]string, error) {
+// cleanJSONResponse removes Markdown code fences and extra whitespace from a JSON string.
+func cleanJSONResponse(s string) string {
+	s = strings.TrimSpace(s)
+	// Remove leading ``` and optional language
+	if strings.HasPrefix(s, "```") {
+		// Find the first newline after the backticks
+		lines := strings.SplitN(s, "\n", 2)
+		if len(lines) == 2 {
+			s = lines[1]
+		} else {
+			// No newline, remove the backticks entirely
+			s = strings.TrimPrefix(s, "```")
+		}
+		// Remove trailing ```
+		s = strings.TrimSuffix(s, "```")
+	}
+	// Also remove any trailing ``` that may be on its own line
+	lines := strings.Split(s, "\n")
+	if len(lines) > 0 && strings.TrimSpace(lines[len(lines)-1]) == "```" {
+		lines = lines[:len(lines)-1]
+		s = strings.Join(lines, "\n")
+	}
+	s = strings.TrimSpace(s)
+	return s
+}
+
+// extractFacts sends the given messages to GigaChat with a fact extraction prompt and returns facts as plain text.
+func (a *Agent) extractFacts(messages []Message) (string, error) {
 	extractionPrompt := a.historyConfig.StickyFactsExtractionPrompt
 	requestMessages := append(messages, Message{Role: "user", Content: extractionPrompt})
 	result, err := a.client.SendMessage(requestMessages)
 	if err != nil {
-		return nil, err
+		return "", err
 	}
-	// Parse JSON response
-	var facts map[string]string
-	if err := json.Unmarshal([]byte(result.Content), &facts); err != nil {
-		// If parsing fails, return empty map and log error
-		a.logger.LogError(err, "failed to parse facts JSON", "response", result.Content)
-		return make(map[string]string), nil
-	}
-	return facts, nil
+	// Clean the response (remove markdown code fences, extra whitespace)
+	cleaned := cleanJSONResponse(result.Content)
+	return cleaned, nil
 }
 
 // SendMessage processes a user message for a given session ID and returns the assistant's response and token usage.
@@ -265,15 +284,9 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		}
 		// Retrieve facts from session
 		facts := storageSession.Facts
-		if facts == nil {
-			facts = make(map[string]string)
-		}
-		// Build system message with facts
-		if len(facts) > 0 {
-			factsContent := "Facts:\n"
-			for k, v := range facts {
-				factsContent += fmt.Sprintf("- %s: %s\n", k, v)
-			}
+		// Build system message with facts if not empty
+		if facts != "" {
+			factsContent := "Facts:\n" + facts
 			factsMsg := Message{Role: "system", Content: strings.TrimSpace(factsContent)}
 			// Prepend facts message to history for the request
 			history = append([]Message{factsMsg}, history...)
