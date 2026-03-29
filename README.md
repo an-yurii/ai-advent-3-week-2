@@ -10,7 +10,7 @@ A client‑server application with an AI agent that interacts with GigaChat API.
 - **Enhanced dialog creation** – Improved UI/UX for starting new chats, featuring a floating action button, visual feedback, and toast notifications.
 - **Persistent storage** – PostgreSQL database for conversation history, surviving server restarts.
 - **Session‑based history** – Full history per user with ability to load previous dialogs.
-- **History compression** – Automatically summarize older messages when history exceeds a configurable limit, keeping recent messages intact.
+- **Multiple context management strategies** – Choose between `summary` (compress older messages), `sliding_window` (keep only recent messages), and `sticky_facts` (extract and reuse key facts across turns).
 - **Structured logging** – Detailed logs with millisecond precision.
 - **Dockerized** – Easy deployment with Docker Compose (includes PostgreSQL).
 - **Database migration** – Automatic schema creation on first launch.
@@ -111,14 +111,35 @@ The application uses PostgreSQL to store conversation history. Each session and 
 
 Migrations are applied automatically on startup via `CREATE TABLE IF NOT EXISTS`.
 
-### History Compression
+### Context Management Strategies
 
-To prevent conversation history from growing indefinitely, the agent can automatically summarize older messages when the total number of messages exceeds a configurable limit.
+The agent supports multiple strategies for managing conversation history, configurable per session via the `strategy` parameter.
+
+#### Summary (default)
+When the number of messages exceeds `HISTORY_MAX_MESSAGES`, older messages are automatically summarized into a single system message.
 
 - **Configuration**: Set `HISTORY_MAX_MESSAGES` (integer) to the maximum number of messages allowed per session. If set to 0 (default), compression is disabled.
 - **Summarization prompt**: Provide a custom prompt via a file specified in `HISTORY_SUMMARY_PROMPT_FILE`. If not set, a default prompt is used.
 - **Behavior**: When a new user message would cause the history to exceed the limit, the agent summarizes all older messages (excluding the current user message) into a single summary message (role `system`). The summary replaces the older messages, and a notification message is added. The conversation continues with the summary as context.
 - **Notification**: A system message "History has been summarized to reduce length." appears in the chat UI.
+
+#### Sliding Window
+Keeps only the most recent N messages, discarding older ones.
+
+- **Configuration**: Set `SLIDING_WINDOW_SIZE` (default 10) to the number of messages to retain.
+- **Behavior**: Before each request, the agent truncates the session history to the last `SLIDING_WINDOW_SIZE` messages. No extra LLM call is required.
+
+#### Sticky Facts
+Maintains a sliding window of recent messages and extracts key facts from the conversation, which are sent as a system message at the start of each request. Facts are updated after each turn.
+
+- **Configuration**:
+  - `STICKY_FACTS_WINDOW_SIZE` (default 10) – number of recent messages to keep.
+  - `STICKY_FACTS_EXTRACTION_PROMPT_FILE` – path to a custom prompt for fact extraction (default prompt extracts facts as JSON).
+- **Behavior**:
+  1. The agent keeps the last `STICKY_FACTS_WINDOW_SIZE` messages.
+  2. Before sending the request, a system message containing the current facts (key‑value pairs) is prepended to the conversation.
+  3. After receiving the assistant's response, the agent runs fact extraction on the updated conversation (including the new messages) and updates the session's facts store.
+  4. Facts are persisted across requests and can evolve as the conversation progresses.
 
 ### Storage Interface
 
@@ -139,6 +160,9 @@ The agent uses a pluggable storage interface (`storage.Storage`). Two implementa
 | `DB_NAME`            | PostgreSQL database name            | No       | `ai_agent`       |
 | `HISTORY_MAX_MESSAGES` | Maximum number of messages per session before compression triggers (0 = disabled) | No | 0 |
 | `HISTORY_SUMMARY_PROMPT_FILE` | Path to a file containing a custom summarization prompt | No | (uses default prompt) |
+| `SLIDING_WINDOW_SIZE` | Number of most recent messages to keep when using `sliding_window` strategy | No | 10 |
+| `STICKY_FACTS_WINDOW_SIZE` | Number of most recent messages to keep when using `sticky_facts` strategy | No | 10 |
+| `STICKY_FACTS_EXTRACTION_PROMPT_FILE` | Path to a file containing a custom prompt for fact extraction | No | (uses default prompt) |
 
 When running with Docker Compose, all database variables are set automatically; you only need to provide `DB_PASSWORD` if you wish to change it.
 

@@ -136,12 +136,14 @@ Content-Type: application/json
 ```json
 {
   "message": "string, required",
-  "session_id": "string, required"
+  "session_id": "string, required",
+  "strategy": "string, optional"
 }
 ```
 
 - `message`: The user's input text.
 - `session_id`: Unique identifier for the conversation session. If a new session ID is provided, a new conversation history is started.
+- `strategy`: Context management strategy. One of: `summary` (default), `sliding_window`, `sticky_facts`. If omitted, the session's current strategy is used (defaults to `summary`).
 
 #### Response
 
@@ -190,6 +192,10 @@ curl -X POST http://localhost:8080/api/chat \
 - Each `session_id` maps to an independent conversation history.
 - History is **persisted in a PostgreSQL database** and survives server restarts.
 - The server keeps the full history of each session; however, when the number of messages exceeds `HISTORY_MAX_MESSAGES` (configurable via environment variable), older messages are automatically summarized into a single system message to reduce length. The summary and a notification message appear in the history.
+- The agent supports multiple context management strategies:
+  - **summary** (default): Summarizes older messages when history length exceeds a limit.
+  - **sliding_window**: Keeps only the most recent N messages (configurable via `SLIDING_WINDOW_SIZE`).
+  - **sticky_facts**: Maintains a sliding window of recent messages and extracts key facts from the conversation, which are sent as a system message at the start of each request. Facts are updated after each turn.
 - To start a fresh conversation, provide a new `session_id`.
 - The web interface automatically generates a UUID for the session and stores it in the browser's local storage, allowing the user to resume the same conversation across page reloads.
 - The new landing page (`/`) provides a list of previous sessions and the ability to create a new session.
