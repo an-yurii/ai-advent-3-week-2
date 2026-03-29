@@ -121,6 +121,58 @@ curl -X DELETE http://localhost:8080/api/sessions/abc123
 
 ---
 
+### `POST /api/sessions/{id}/copy`
+
+Creates a copy of an existing session, including its message history, strategy, and facts. Returns a new session ID.
+
+#### Path Parameters
+
+- `id` (required) – Source session identifier (UUID).
+
+#### Request
+
+No request body required.
+
+#### Response
+
+**Success (201 Created)**
+
+```json
+{
+  "new_session_id": "string",
+  "source_session_id": "string",
+  "message": "Session copied successfully"
+}
+```
+
+- `new_session_id`: The UUID of the newly created session (a copy of the source).
+- `source_session_id`: The UUID of the source session (echoed from the request).
+- `message`: Human‑readable status message.
+
+**Error Responses**
+
+| Status Code | Description          | Example Body                          |
+|-------------|----------------------|---------------------------------------|
+| 404         | Source session not found | `{"error":"Session not found"}`       |
+| 500         | Internal server error | `{"error":"Internal server error"}`   |
+
+#### Example
+
+```bash
+curl -X POST http://localhost:8080/api/sessions/abc123/copy
+```
+
+Response:
+```json
+{
+  "new_session_id": "def456",
+  "source_session_id": "abc123",
+  "message": "Session copied successfully"
+}
+```
+
+---
+
 ### `POST /api/chat`
 
 Processes a user message and returns the AI assistant's response.
@@ -199,6 +251,7 @@ curl -X POST http://localhost:8080/api/chat \
 - To start a fresh conversation, provide a new `session_id`.
 - The web interface automatically generates a UUID for the session and stores it in the browser's local storage, allowing the user to resume the same conversation across page reloads.
 - The new landing page (`/`) provides a list of previous sessions and the ability to create a new session.
+- You can create a **branch (copy)** of any existing session via `POST /api/sessions/{id}/copy`. This creates a new session with the same history, strategy, and facts, allowing you to explore alternative conversation paths.
 
 ## Database
 

@@ -356,6 +356,46 @@ func (a *Agent) ClearSession(sessionID string) error {
 	return a.storage.DeleteSession(sessionID)
 }
 
+// CopySession creates a copy of an existing session with a new ID.
+// Returns the new session ID, or an error if the source session does not exist.
+func (a *Agent) CopySession(sourceID string, newID string) error {
+	// Retrieve source session
+	source, err := a.storage.GetSession(sourceID)
+	if err != nil {
+		return err
+	}
+	if source == nil {
+		return ErrSessionNotFound
+	}
+	// Create new session
+	if err := a.storage.CreateSession(newID); err != nil {
+		return err
+	}
+	// Copy history if any
+	if len(source.History) > 0 {
+		// Deep copy of messages
+		messages := make([]storage.Message, len(source.History))
+		copy(messages, source.History)
+		if err := a.storage.ReplaceHistory(newID, messages); err != nil {
+			// If replace fails, we should delete the newly created session? For simplicity, just return error.
+			return err
+		}
+	}
+	// Copy strategy
+	if source.Strategy != "" {
+		if err := a.storage.UpdateStrategy(newID, source.Strategy); err != nil {
+			return err
+		}
+	}
+	// Copy facts
+	if source.Facts != "" {
+		if err := a.storage.UpdateFacts(newID, source.Facts); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
 // ClearAllSessions removes all sessions.
 func (a *Agent) ClearAllSessions() error {
 	sessionIDs, err := a.storage.ListSessions()

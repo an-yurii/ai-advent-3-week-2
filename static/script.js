@@ -48,6 +48,7 @@ const messageInput = document.getElementById('message-input');
 const sendButton = document.getElementById('send-button');
 const clearButton = document.getElementById('clear-button');
 const copySessionButton = document.getElementById('copy-session');
+const copyDialogueButton = document.getElementById('copy-dialogue');
 const newSessionButton = document.getElementById('new-session');
 const backToLandingButton = document.getElementById('back-to-landing');
 const fabNewSession = document.getElementById('fab-new-session');
@@ -184,6 +185,38 @@ function copySessionId() {
     });
 }
 
+// Copy dialogue (create a branch)
+async function copyDialogue() {
+    try {
+        const response = await fetch(`/api/sessions/${sessionId}/copy`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+        });
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+        const data = await response.json();
+        const newSessionId = data.new_session_id;
+        // Update session ID
+        sessionId = newSessionId;
+        localStorage.setItem('sessionId', sessionId);
+        document.getElementById('session-id').innerHTML = `Session: <code>${sessionId}</code>`;
+        // Add a system message
+        addMessage('system', `Dialogue copied to new session (${newSessionId}). You are now in the copied session.`);
+        // Update URL
+        const url = new URL(window.location);
+        url.searchParams.set('session', sessionId);
+        const strategy = getStrategy();
+        url.searchParams.set('strategy', strategy);
+        window.history.pushState({}, '', url);
+        // Show toast
+        showToast('Dialogue copied to new session!', 'info');
+    } catch (error) {
+        console.error('Error copying dialogue:', error);
+        addMessage('system', `Error copying dialogue: ${error.message}`);
+    }
+}
+
 // Show a toast notification
 function showToast(message, type = 'info') {
     toastMessage.textContent = message;
@@ -229,6 +262,7 @@ messageInput.addEventListener('keydown', (e) => {
 });
 clearButton.addEventListener('click', clearChat);
 copySessionButton.addEventListener('click', copySessionId);
+copyDialogueButton.addEventListener('click', copyDialogue);
 newSessionButton.addEventListener('click', newSession);
 if (fabNewSession) {
     fabNewSession.addEventListener('click', newSession);

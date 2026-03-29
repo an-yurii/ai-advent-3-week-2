@@ -9,6 +9,8 @@ import (
 	"os"
 	"strings"
 
+	"github.com/google/uuid"
+
 	"ai-agent-gigachat/internal/agent"
 	"ai-agent-gigachat/internal/storage"
 	"ai-agent-gigachat/internal/storage/memory"
@@ -178,6 +180,12 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "Session ID required", http.StatusBadRequest)
 		return
 	}
+	// Check if the path ends with "/copy" for copy operation
+	if strings.HasSuffix(path, "/copy") {
+		// Delegate to handleSessionCopy
+		handleSessionCopy(w, r)
+		return
+	}
 	sessionID := path
 
 	switch r.Method {
@@ -203,4 +211,53 @@ func handleSession(w http.ResponseWriter, r *http.Request) {
 	default:
 		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
 	}
+}
+
+// handleSessionCopy creates a copy of an existing session.
+func handleSessionCopy(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract source session ID from URL path
+	path := strings.TrimPrefix(r.URL.Path, "/api/sessions/")
+	if path == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+	// Remove "/copy" suffix
+	if !strings.HasSuffix(path, "/copy") {
+		// This should not happen if routing is correct
+		http.Error(w, "Invalid path", http.StatusBadRequest)
+		return
+	}
+	sourceID := strings.TrimSuffix(path, "/copy")
+	if sourceID == "" {
+		http.Error(w, "Session ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Generate new session ID
+	newID := uuid.New().String()
+
+	// Copy session using agent
+	err := aiAgent.CopySession(sourceID, newID)
+	if err != nil {
+		if err == agent.ErrSessionNotFound {
+			http.Error(w, "Source session not found", http.StatusNotFound)
+			return
+		}
+		log.Printf("Error copying session: %v", err)
+		http.Error(w, "Internal server error", http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(http.StatusCreated)
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"new_session_id":    newID,
+		"source_session_id": sourceID,
+		"message":           "Session copied successfully",
+	})
 }
