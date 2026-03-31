@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Agent - Profile Management</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="stylesheet" href="profiles.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+</head>
+<body>
+    <div class="container">
+        <header class="header">
+            <h1><i class="fas fa-user-circle"></i> Profile Management</h1>
+            <div class="header-actions">
+                <a href="index.html" class="btn btn-secondary">
+                    <i class="fas fa-arrow-left"></i> Back to Sessions
+                </a>
+                <button id="new-profile-btn" class="btn btn-primary">
+                    <i class="fas fa-plus"></i> New Profile
+                </button>
+            </div>
+        </header>
+
+        <div class="profiles-container">
+            <div class="profiles-list-container">
+                <h2><i class="fas fa-users"></i> Profiles</h2>
+                <div class="profiles-list" id="profiles-list">
+                    <!-- Profiles will be loaded here -->
+                    <div class="loading">Loading profiles...</div>
+                </div>
+            </div>
+
+            <div class="profile-editor-container">
+                <h2><i class="fas fa-edit"></i> Profile Editor</h2>
+                <div class="profile-editor" id="profile-editor">
+                    <div class="editor-placeholder">
+                        <i class="fas fa-user-edit"></i>
+                        <p>Select a profile to edit or create a new one</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Profile Editor Form (hidden by default) -->
+        <div class="profile-form-overlay" id="profile-form-overlay">
+            <div class="profile-form-modal">
+                <div class="profile-form-header">
+                    <h3 id="form-title">New Profile</h3>
+                    <button class="close-btn" id="close-form-btn">
+                        <i class="fas fa-times"></i>
+                    </button>
+                </div>
+                <form id="profile-form">
+                    <input type="hidden" id="profile-id">
+                    
+                    <div class="form-group">
+                        <label for="profile-name">
+                            <i class="fas fa-tag"></i> Profile Name *
+                        </label>
+                        <input type="text" id="profile-name" required 
+                               placeholder="e.g., Technical Writer, Creative Assistant">
+                    </div>
+
+                    <div class="form-group">
+                        <label for="profile-style">
+                            <i class="fas fa-paint-brush"></i> Style
+                        </label>
+                        <textarea id="profile-style" rows="4" 
+                                  placeholder="Describe the communication style (e.g., friendly, formal, concise)"></textarea>
+                        <div class="textarea-info">How the AI should communicate</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="profile-constraints">
+                            <i class="fas fa-ban"></i> Constraints
+                        </label>
+                        <textarea id="profile-constraints" rows="4" 
+                                  placeholder="List any constraints or limitations (e.g., avoid technical jargon, keep responses under 200 words)"></textarea>
+                        <div class="textarea-info">Rules the AI must follow</div>
+                    </div>
+
+                    <div class="form-group">
+                        <label for="profile-context">
+                            <i class="fas fa-info-circle"></i> Context
+                        </label>
+                        <textarea id="profile-context" rows="4" 
+                                  placeholder="Provide background context (e.g., You are a helpful assistant specialized in programming)"></textarea>
+                        <div class="textarea-info">Background information for the AI</div>
+                    </div>
+
+                    <div class="form-group checkbox-group">
+                        <input type="checkbox" id="profile-default">
+                        <label for="profile-default">
+                            <i class="fas fa-star"></i> Set as default profile
+                        </label>
+                        <div class="checkbox-info">This profile will be selected by default for new sessions</div>
+                    </div>
+
+                    <div class="form-actions">
+                        <button type="button" class="btn btn-secondary" id="cancel-btn">
+                            Cancel
+                        </button>
+                        <button type="submit" class="btn btn-primary" id="save-btn">
+                            Save Profile
+                        </button>
+                        <button type="button" class="btn btn-danger" id="delete-btn" style="display: none;">
+                            <i class="fas fa-trash"></i> Delete
+                        </button>
+                    </div>
+                </form>
+            </div>
+        </div>
+
+        <!-- Toast notification -->
+        <div id="toast" class="toast">
+            <div id="toast-message"></div>
+        </div>
+    </div>
+
+    <script src="profiles.js"></script>
+</body>
+</html>

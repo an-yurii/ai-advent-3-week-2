@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 
 	"github.com/google/uuid"
 
@@ -75,6 +76,8 @@ func main() {
 	http.HandleFunc("/api/chat", handleChat)
 	http.HandleFunc("/api/sessions", handleSessions)
 	http.HandleFunc("/api/sessions/", handleSession)
+	http.HandleFunc("/api/profiles", handleProfiles)
+	http.HandleFunc("/api/profiles/", handleProfile)
 
 	port := ":8080"
 	log.Printf("Server starting on %s", port)
@@ -92,6 +95,7 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		Message   string `json:"message"`
 		SessionID string `json:"session_id"`
 		Strategy  string `json:"strategy,omitempty"`
+		ProfileID string `json:"profile_id,omitempty"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		http.Error(w, "Invalid JSON", http.StatusBadRequest)
@@ -112,6 +116,20 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 			if err := store.UpdateStrategy(req.SessionID, req.Strategy); err != nil {
 				log.Printf("Failed to update session strategy: %v", err)
 				// Non‑fatal, proceed with existing strategy
+			}
+		}
+	}
+
+	// Update session profile if provided
+	if req.ProfileID != "" {
+		// Ensure session exists (idempotent)
+		if err := store.CreateSession(req.SessionID); err != nil {
+			log.Printf("Failed to create session for profile update: %v", err)
+			// Continue anyway, SendMessage will also try to create
+		} else {
+			if err := store.UpdateSessionProfile(req.SessionID, req.ProfileID); err != nil {
+				log.Printf("Failed to update session profile: %v", err)
+				// Non‑fatal, proceed without profile
 			}
 		}
 	}
@@ -164,6 +182,7 @@ func handleSessions(w http.ResponseWriter, r *http.Request) {
 			"id":           id,
 			"last_message": lastMessage,
 			"strategy":     session.Strategy,
+			"profile_id":   session.ProfileID,
 			"updated_at":   session.UpdatedAt,
 			"created_at":   session.CreatedAt,
 		})
@@ -260,4 +279,154 @@ func handleSessionCopy(w http.ResponseWriter, r *http.Request) {
 		"source_session_id": sourceID,
 		"message":           "Session copied successfully",
 	})
+}
+
+// handleProfiles handles GET /api/profiles and POST /api/profiles
+func handleProfiles(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		// List all profiles
+		profiles, err := store.ListProfiles()
+		if err != nil {
+			log.Printf("Error listing profiles: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(profiles)
+
+	case http.MethodPost:
+		// Create new profile
+		var profile storage.Profile
+		if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Validate required fields
+		if profile.Name == "" {
+			http.Error(w, "Profile name is required", http.StatusBadRequest)
+			return
+		}
+
+		// Generate ID if not provided
+		if profile.ID == "" {
+			profile.ID = uuid.New().String()
+		}
+
+		// Set timestamps
+		now := time.Now()
+		profile.CreatedAt = now
+		profile.UpdatedAt = now
+
+		// Create profile
+		if err := store.CreateProfile(profile); err != nil {
+			log.Printf("Error creating profile: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusCreated)
+		json.NewEncoder(w).Encode(profile)
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
+}
+
+// handleProfile handles GET /api/profiles/{id}, PUT /api/profiles/{id}, DELETE /api/profiles/{id}
+func handleProfile(w http.ResponseWriter, r *http.Request) {
+	path := strings.TrimPrefix(r.URL.Path, "/api/profiles/")
+	if path == "" {
+		http.Error(w, "Profile ID required", http.StatusBadRequest)
+		return
+	}
+
+	// Check for set-default endpoint
+	if strings.HasSuffix(path, "/set-default") {
+		profileID := strings.TrimSuffix(path, "/set-default")
+		if r.Method != http.MethodPost {
+			http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		if err := store.SetDefaultProfile(profileID); err != nil {
+			if err == storage.ErrProfileNotFound {
+				http.Error(w, "Profile not found", http.StatusNotFound)
+				return
+			}
+			log.Printf("Error setting default profile: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "Default profile updated"})
+		return
+	}
+
+	profileID := path
+
+	switch r.Method {
+	case http.MethodGet:
+		// Get profile by ID
+		profile, err := store.GetProfile(profileID)
+		if err != nil {
+			if err == storage.ErrProfileNotFound {
+				http.Error(w, "Profile not found", http.StatusNotFound)
+				return
+			}
+			log.Printf("Error getting profile: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(profile)
+
+	case http.MethodPut:
+		// Update profile
+		var profile storage.Profile
+		if err := json.NewDecoder(r.Body).Decode(&profile); err != nil {
+			http.Error(w, "Invalid JSON", http.StatusBadRequest)
+			return
+		}
+
+		// Ensure ID matches
+		profile.ID = profileID
+		profile.UpdatedAt = time.Now()
+
+		if err := store.UpdateProfile(profileID, profile); err != nil {
+			if err == storage.ErrProfileNotFound {
+				http.Error(w, "Profile not found", http.StatusNotFound)
+				return
+			}
+			log.Printf("Error updating profile: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(profile)
+
+	case http.MethodDelete:
+		// Delete profile
+		if err := store.DeleteProfile(profileID); err != nil {
+			if err == storage.ErrProfileNotFound {
+				http.Error(w, "Profile not found", http.StatusNotFound)
+				return
+			}
+			if err == storage.ErrProfileInUse {
+				http.Error(w, "Profile is in use by sessions", http.StatusConflict)
+				return
+			}
+			log.Printf("Error deleting profile: %v", err)
+			http.Error(w, "Internal server error", http.StatusInternalServerError)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]string{"message": "Profile deleted"})
+
+	default:
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+	}
 }

@@ -11,13 +11,28 @@ import (
 type MemoryStorage struct {
 	mu       sync.RWMutex
 	sessions map[string]*storage.Session
+	profiles map[string]*storage.Profile
 }
 
 // New creates a new MemoryStorage.
 func New() *MemoryStorage {
-	return &MemoryStorage{
+	ms := &MemoryStorage{
 		sessions: make(map[string]*storage.Session),
+		profiles: make(map[string]*storage.Profile),
 	}
+	// Add a default profile
+	defaultProfile := &storage.Profile{
+		ID:          "00000000-0000-0000-0000-000000000000",
+		Name:        "Default",
+		Style:       "Respond in a helpful, friendly, and professional manner.",
+		Constraints: "Be accurate, concise, and avoid harmful content.",
+		Context:     "You are an AI assistant helping users with their questions.",
+		CreatedAt:   time.Now(),
+		UpdatedAt:   time.Now(),
+		IsDefault:   true,
+	}
+	ms.profiles[defaultProfile.ID] = defaultProfile
+	return ms
 }
 
 // GetSession retrieves a session by ID, including its message history.
@@ -37,6 +52,7 @@ func (m *MemoryStorage) GetSession(id string) (*storage.Session, error) {
 		History:   history,
 		Strategy:  session.Strategy,
 		Facts:     facts,
+		ProfileID: session.ProfileID,
 		CreatedAt: session.CreatedAt,
 		UpdatedAt: session.UpdatedAt,
 	}, nil
@@ -133,6 +149,122 @@ func (m *MemoryStorage) UpdateFacts(sessionID string, facts string) error {
 	session.Facts = facts
 	session.UpdatedAt = time.Now()
 	return nil
+}
+
+// UpdateSessionProfile updates the profile associated with a session.
+func (m *MemoryStorage) UpdateSessionProfile(sessionID string, profileID string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	session, exists := m.sessions[sessionID]
+	if !exists {
+		return storage.ErrSessionNotFound
+	}
+	session.ProfileID = profileID
+	session.UpdatedAt = time.Now()
+	return nil
+}
+
+// ListProfiles returns all profiles.
+func (m *MemoryStorage) ListProfiles() ([]storage.Profile, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	profiles := make([]storage.Profile, 0, len(m.profiles))
+	for _, p := range m.profiles {
+		profiles = append(profiles, *p)
+	}
+	return profiles, nil
+}
+
+// GetProfile retrieves a profile by ID.
+func (m *MemoryStorage) GetProfile(id string) (*storage.Profile, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	p, exists := m.profiles[id]
+	if !exists {
+		return nil, storage.ErrProfileNotFound
+	}
+	// Return a copy
+	copyProfile := *p
+	return &copyProfile, nil
+}
+
+// CreateProfile creates a new profile.
+func (m *MemoryStorage) CreateProfile(profile storage.Profile) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.profiles[profile.ID]; exists {
+		// Profile already exists
+		return nil
+	}
+	// Create a copy
+	p := profile
+	m.profiles[profile.ID] = &p
+	return nil
+}
+
+// UpdateProfile updates an existing profile.
+func (m *MemoryStorage) UpdateProfile(id string, profile storage.Profile) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if _, exists := m.profiles[id]; !exists {
+		return storage.ErrProfileNotFound
+	}
+	// Update with new values
+	p := profile
+	p.ID = id // Ensure ID doesn't change
+	m.profiles[id] = &p
+	return nil
+}
+
+// DeleteProfile deletes a profile.
+func (m *MemoryStorage) DeleteProfile(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if profile is in use
+	for _, session := range m.sessions {
+		if session.ProfileID == id {
+			return storage.ErrProfileInUse
+		}
+	}
+
+	delete(m.profiles, id)
+	return nil
+}
+
+// SetDefaultProfile sets a profile as default and unsets any other default.
+func (m *MemoryStorage) SetDefaultProfile(id string) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	// Check if profile exists
+	p, exists := m.profiles[id]
+	if !exists {
+		return storage.ErrProfileNotFound
+	}
+
+	// Unset all defaults
+	for _, profile := range m.profiles {
+		profile.IsDefault = false
+	}
+
+	// Set new default
+	p.IsDefault = true
+	return nil
+}
+
+// GetDefaultProfile returns the default profile, if any.
+func (m *MemoryStorage) GetDefaultProfile() (*storage.Profile, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+	for _, p := range m.profiles {
+		if p.IsDefault {
+			// Return a copy
+			copyProfile := *p
+			return &copyProfile, nil
+		}
+	}
+	return nil, nil // No default profile
 }
 
 // Close releases any resources held by the storage (no‑op for memory).

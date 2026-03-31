@@ -122,7 +122,7 @@ func toAgentSession(s *storage.Session) *Session {
 	for i, m := range s.History {
 		history[i] = toAgentMessage(m)
 	}
-	return &Session{ID: s.ID, History: history, Strategy: s.Strategy}
+	return &Session{ID: s.ID, History: history, Strategy: s.Strategy, ProfileID: s.ProfileID}
 }
 
 // summarizeMessages sends the given messages to GigaChat with a summarization prompt and returns the summary text.
@@ -293,6 +293,36 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		}
 	default:
 		a.logger.LogError(nil, "unknown strategy, using default (summary)", "strategy", strategy)
+	}
+
+	// Add profile context if session has a profile
+	if storageSession.ProfileID != "" {
+		profile, err := a.storage.GetProfile(storageSession.ProfileID)
+		if err != nil {
+			a.logger.LogError(err, "failed to get profile", "profile_id", storageSession.ProfileID)
+		} else if profile != nil {
+			// Build profile context message
+			var contextBuilder strings.Builder
+			contextBuilder.WriteString("You are using the following profile:\n")
+			contextBuilder.WriteString("Name: " + profile.Name + "\n")
+
+			if profile.Style != "" {
+				contextBuilder.WriteString("\nStyle: " + profile.Style + "\n")
+			}
+			if profile.Constraints != "" {
+				contextBuilder.WriteString("\nConstraints: " + profile.Constraints + "\n")
+			}
+			if profile.Context != "" {
+				contextBuilder.WriteString("\nContext: " + profile.Context + "\n")
+			}
+
+			profileMsg := Message{
+				Role:    "system",
+				Content: contextBuilder.String(),
+			}
+			// Prepend profile message to history
+			history = append([]Message{profileMsg}, history...)
+		}
 	}
 
 	// Send the (possibly compressed) history to GigaChat

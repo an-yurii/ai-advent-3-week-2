@@ -16,17 +16,30 @@ type Message struct {
 
 // Strategy constants
 const (
-	StrategySummary      = "summary"
+	StrategySummary       = "summary"
 	StrategySlidingWindow = "sliding_window"
-	StrategyStickyFacts  = "sticky_facts"
+	StrategyStickyFacts   = "sticky_facts"
 )
+
+// Profile holds user profile configuration for AI interactions.
+type Profile struct {
+	ID          string
+	Name        string
+	Style       string
+	Constraints string
+	Context     string
+	CreatedAt   time.Time
+	UpdatedAt   time.Time
+	IsDefault   bool
+}
 
 // Session holds the conversation history for a single user session.
 type Session struct {
 	ID        string
 	History   []Message
-	Strategy  string    // one of StrategySummary, StrategySlidingWindow, StrategyStickyFacts
+	Strategy  string // one of StrategySummary, StrategySlidingWindow, StrategyStickyFacts
 	Facts     string // plain text facts extracted from conversation
+	ProfileID string // optional profile ID
 	CreatedAt time.Time
 	UpdatedAt time.Time
 }
@@ -63,9 +76,28 @@ type Storage interface {
 	// The session must exist; if not, ErrSessionNotFound is returned.
 	UpdateFacts(sessionID string, facts string) error
 
+	// UpdateSessionProfile updates the profile associated with a session.
+	// The session must exist; if not, ErrSessionNotFound is returned.
+	UpdateSessionProfile(sessionID string, profileID string) error
+
+	// Profile management methods
+	ListProfiles() ([]Profile, error)
+	GetProfile(id string) (*Profile, error)
+	CreateProfile(profile Profile) error
+	UpdateProfile(id string, profile Profile) error
+	DeleteProfile(id string) error
+	SetDefaultProfile(id string) error
+	GetDefaultProfile() (*Profile, error)
+
 	// Close releases any resources held by the storage.
 	Close() error
 }
 
 // ErrSessionNotFound is returned when a session does not exist.
 var ErrSessionNotFound = errors.New("session not found")
+
+// ErrProfileNotFound is returned when a profile does not exist.
+var ErrProfileNotFound = errors.New("profile not found")
+
+// ErrProfileInUse is returned when trying to delete a profile that is in use by sessions.
+var ErrProfileInUse = errors.New("profile is in use by sessions")

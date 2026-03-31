@@ -68,8 +68,22 @@ func (s *PostgresStorage) migrate(ctx context.Context) error {
 			total_tokens INTEGER DEFAULT 0
 		);
 
+		CREATE TABLE IF NOT EXISTS profiles (
+			id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+			name VARCHAR(255) NOT NULL,
+			style TEXT NOT NULL DEFAULT '',
+			constraints TEXT NOT NULL DEFAULT '',
+			context TEXT NOT NULL DEFAULT '',
+			created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
+			is_default BOOLEAN DEFAULT FALSE
+		);
+
 		CREATE INDEX IF NOT EXISTS idx_messages_session_id ON messages(session_id);
 		CREATE INDEX IF NOT EXISTS idx_messages_session_sequence ON messages(session_id, sequence);
+		CREATE INDEX IF NOT EXISTS idx_profiles_name ON profiles(name);
+		CREATE INDEX IF NOT EXISTS idx_profiles_created_at ON profiles(created_at DESC);
+		CREATE INDEX IF NOT EXISTS idx_profiles_is_default ON profiles(is_default) WHERE is_default = TRUE;
 	`)
 	if err != nil {
 		return fmt.Errorf("failed to create tables: %w", err)
@@ -84,10 +98,31 @@ func (s *PostgresStorage) migrate(ctx context.Context) error {
 
 		ALTER TABLE sessions
 		ADD COLUMN IF NOT EXISTS strategy TEXT DEFAULT 'summary',
-		ADD COLUMN IF NOT EXISTS facts TEXT DEFAULT '';
+		ADD COLUMN IF NOT EXISTS facts TEXT DEFAULT '',
+		ADD COLUMN IF NOT EXISTS profile_id UUID REFERENCES profiles(id) ON DELETE SET NULL;
+
+		CREATE INDEX IF NOT EXISTS idx_sessions_profile_id ON sessions(profile_id);
 	`)
 	if err != nil {
-		return fmt.Errorf("failed to add token columns: %w", err)
+		return fmt.Errorf("failed to add columns: %w", err)
+	}
+
+	// Insert default profile if none exists
+	_, err = s.pool.Exec(ctx, `
+		INSERT INTO profiles (id, name, style, constraints, context, is_default, created_at, updated_at)
+		VALUES (
+			'00000000-0000-0000-0000-000000000000',
+			'Default',
+			'Respond in a helpful, friendly, and professional manner.',
+			'Be accurate, concise, and avoid harmful content.',
+			'You are an AI assistant helping users with their questions.',
+			TRUE,
+			NOW(),
+			NOW()
+		) ON CONFLICT (id) DO NOTHING;
+	`)
+	if err != nil {
+		return fmt.Errorf("failed to insert default profile: %w", err)
 	}
 
 	return nil
@@ -101,9 +136,10 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 	var createdAt, updatedAt time.Time
 	var strategy string
 	var factsText string
+	var profileID *string // Use pointer to handle NULL
 	err := s.pool.QueryRow(ctx,
-		`SELECT created_at, updated_at, strategy, facts FROM sessions WHERE id = $1`, id).
-		Scan(&createdAt, &updatedAt, &strategy, &factsText)
+		`SELECT created_at, updated_at, strategy, facts, profile_id FROM sessions WHERE id = $1`, id).
+		Scan(&createdAt, &updatedAt, &strategy, &factsText, &profileID)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -141,11 +177,18 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 		return nil, fmt.Errorf("error iterating messages: %w", err)
 	}
 
+	// Convert profileID pointer to string (empty if nil)
+	profileIDStr := ""
+	if profileID != nil {
+		profileIDStr = *profileID
+	}
+
 	return &storage.Session{
 		ID:        id,
 		History:   history,
 		Strategy:  strategy,
 		Facts:     factsText,
+		ProfileID: profileIDStr,
 		CreatedAt: createdAt,
 		UpdatedAt: updatedAt,
 	}, nil
@@ -321,6 +364,151 @@ func (s *PostgresStorage) UpdateFacts(sessionID string, facts string) error {
 		return fmt.Errorf("failed to update facts: %w", err)
 	}
 	return nil
+}
+
+// UpdateSessionProfile updates the profile associated with a session.
+func (s *PostgresStorage) UpdateSessionProfile(sessionID string, profileID string) error {
+	ctx := context.Background()
+	_, err := s.pool.Exec(ctx,
+		`UPDATE sessions SET profile_id = $1, updated_at = NOW() WHERE id = $2`,
+		profileID, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to update session profile: %w", err)
+	}
+	return nil
+}
+
+// ListProfiles returns all profiles ordered by creation time.
+func (s *PostgresStorage) ListProfiles() ([]storage.Profile, error) {
+	ctx := context.Background()
+	rows, err := s.pool.Query(ctx,
+		`SELECT id, name, style, constraints, context, created_at, updated_at, is_default
+		 FROM profiles ORDER BY created_at DESC`)
+	if err != nil {
+		return nil, fmt.Errorf("failed to query profiles: %w", err)
+	}
+	defer rows.Close()
+
+	var profiles []storage.Profile
+	for rows.Next() {
+		var p storage.Profile
+		err := rows.Scan(&p.ID, &p.Name, &p.Style, &p.Constraints, &p.Context, &p.CreatedAt, &p.UpdatedAt, &p.IsDefault)
+		if err != nil {
+			return nil, fmt.Errorf("failed to scan profile: %w", err)
+		}
+		profiles = append(profiles, p)
+	}
+	return profiles, nil
+}
+
+// GetProfile retrieves a profile by ID.
+func (s *PostgresStorage) GetProfile(id string) (*storage.Profile, error) {
+	ctx := context.Background()
+	var p storage.Profile
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, name, style, constraints, context, created_at, updated_at, is_default
+		 FROM profiles WHERE id = $1`, id).
+		Scan(&p.ID, &p.Name, &p.Style, &p.Constraints, &p.Context, &p.CreatedAt, &p.UpdatedAt, &p.IsDefault)
+	if err == pgx.ErrNoRows {
+		return nil, storage.ErrProfileNotFound
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get profile: %w", err)
+	}
+	return &p, nil
+}
+
+// CreateProfile creates a new profile.
+func (s *PostgresStorage) CreateProfile(profile storage.Profile) error {
+	ctx := context.Background()
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO profiles (id, name, style, constraints, context, is_default, created_at, updated_at)
+		 VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())`,
+		profile.ID, profile.Name, profile.Style, profile.Constraints, profile.Context, profile.IsDefault)
+	if err != nil {
+		return fmt.Errorf("failed to create profile: %w", err)
+	}
+	return nil
+}
+
+// UpdateProfile updates an existing profile.
+func (s *PostgresStorage) UpdateProfile(id string, profile storage.Profile) error {
+	ctx := context.Background()
+	_, err := s.pool.Exec(ctx,
+		`UPDATE profiles
+		 SET name = $1, style = $2, constraints = $3, context = $4, is_default = $5, updated_at = NOW()
+		 WHERE id = $6`,
+		profile.Name, profile.Style, profile.Constraints, profile.Context, profile.IsDefault, id)
+	if err != nil {
+		return fmt.Errorf("failed to update profile: %w", err)
+	}
+	return nil
+}
+
+// DeleteProfile deletes a profile.
+func (s *PostgresStorage) DeleteProfile(id string) error {
+	ctx := context.Background()
+
+	// Check if profile is in use
+	var count int
+	err := s.pool.QueryRow(ctx,
+		`SELECT COUNT(*) FROM sessions WHERE profile_id = $1`, id).Scan(&count)
+	if err != nil {
+		return fmt.Errorf("failed to check profile usage: %w", err)
+	}
+	if count > 0 {
+		return storage.ErrProfileInUse
+	}
+
+	// Delete the profile
+	_, err = s.pool.Exec(ctx, `DELETE FROM profiles WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to delete profile: %w", err)
+	}
+	return nil
+}
+
+// SetDefaultProfile sets a profile as default and unsets any other default.
+func (s *PostgresStorage) SetDefaultProfile(id string) error {
+	ctx := context.Background()
+
+	// Start transaction
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("failed to begin transaction: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	// Unset all defaults
+	_, err = tx.Exec(ctx, `UPDATE profiles SET is_default = FALSE WHERE is_default = TRUE`)
+	if err != nil {
+		return fmt.Errorf("failed to unset defaults: %w", err)
+	}
+
+	// Set new default
+	_, err = tx.Exec(ctx, `UPDATE profiles SET is_default = TRUE, updated_at = NOW() WHERE id = $1`, id)
+	if err != nil {
+		return fmt.Errorf("failed to set default: %w", err)
+	}
+
+	return tx.Commit(ctx)
+}
+
+// GetDefaultProfile returns the default profile, if any.
+func (s *PostgresStorage) GetDefaultProfile() (*storage.Profile, error) {
+	ctx := context.Background()
+	var p storage.Profile
+	err := s.pool.QueryRow(ctx,
+		`SELECT id, name, style, constraints, context, created_at, updated_at, is_default
+		 FROM profiles WHERE is_default = TRUE LIMIT 1`).
+		Scan(&p.ID, &p.Name, &p.Style, &p.Constraints, &p.Context, &p.CreatedAt, &p.UpdatedAt, &p.IsDefault)
+	if err == pgx.ErrNoRows {
+		return nil, nil // No default profile is okay
+	}
+	if err != nil {
+		return nil, fmt.Errorf("failed to get default profile: %w", err)
+	}
+	return &p, nil
 }
 
 // Close releases the connection pool.

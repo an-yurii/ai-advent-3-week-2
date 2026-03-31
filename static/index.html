@@ -204,6 +204,24 @@
                     </p>
                 </div>
 
+                <div class="profile-selector card" style="margin-bottom: 1.5rem;">
+                    <h3><i class="fas fa-user-circle"></i> AI Profile</h3>
+                    <p>Choose a profile to customize the AI's behavior:</p>
+                    <div style="display: flex; gap: 1rem; align-items: center; flex-wrap: wrap;">
+                        <label for="profile">Profile:</label>
+                        <select id="profile" style="padding: 0.5rem; border-radius: 6px; background: #1e293b; color: white; border: 1px solid #475569; min-width: 200px;">
+                            <option value="">Loading profiles...</option>
+                        </select>
+                        <button id="edit-profiles" style="padding: 0.5rem 1rem; background: #475569; color: white; border: none; border-radius: 6px; cursor: pointer; display: flex; align-items: center; gap: 0.5rem;">
+                            <i class="fas fa-edit"></i> Edit Profiles
+                        </button>
+                        <button id="save-profile" style="padding: 0.5rem 1rem; background: #3b82f6; color: white; border: none; border-radius: 6px; cursor: pointer;">Save</button>
+                    </div>
+                    <p style="font-size: 0.9rem; color: #94a3b8; margin-top: 0.5rem;">
+                        The selected profile will be applied to new chats and remembered across page reloads.
+                    </p>
+                </div>
+
                 <div class="sessions-list" id="sessions-list">
                     <!-- Sessions will be populated by JavaScript -->
                     <div class="empty-state">
@@ -357,11 +375,87 @@
             window.location.href = `/chat.html?session=${newId}&strategy=${strategy}`;
         }
 
+        // Profile management
+        const PROFILE_STORAGE_KEY = 'selectedProfileId';
+
+        async function loadProfiles() {
+            try {
+                const response = await fetch('/api/profiles');
+                if (!response.ok) {
+                    throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+                }
+                const profiles = await response.json();
+                const select = document.getElementById('profile');
+                
+                select.innerHTML = '';
+                profiles.forEach(profile => {
+                    const option = document.createElement('option');
+                    option.value = profile.id;
+                    option.textContent = profile.name + (profile.is_default ? ' (Default)' : '');
+                    select.appendChild(option);
+                });
+                
+                // Load saved profile
+                const savedProfileId = localStorage.getItem(PROFILE_STORAGE_KEY);
+                if (savedProfileId) {
+                    select.value = savedProfileId;
+                } else {
+                    // Select default profile if none saved
+                    const defaultProfile = profiles.find(p => p.is_default);
+                    if (defaultProfile) {
+                        select.value = defaultProfile.id;
+                    }
+                }
+            } catch (error) {
+                console.error('Error loading profiles:', error);
+                const select = document.getElementById('profile');
+                select.innerHTML = '<option value="">Failed to load profiles</option>';
+            }
+        }
+
+        function saveProfile() {
+            const select = document.getElementById('profile');
+            const profileId = select.value;
+            if (profileId) {
+                localStorage.setItem(PROFILE_STORAGE_KEY, profileId);
+                alert('Profile saved!');
+            } else {
+                alert('Please select a profile first');
+            }
+        }
+
+        function editProfiles() {
+            window.location.href = 'profiles.html';
+        }
+
+        // Update newSession function to include profile
+        function newSession() {
+            console.log('Creating new session...');
+            // Generate a new UUID (or let the server generate)
+            const newId = 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+                const r = Math.random() * 16 | 0;
+                const v = c === 'x' ? r : (r & 0x3 | 0x8);
+                return v.toString(16);
+            });
+            console.log('Generated session ID:', newId);
+            const strategy = localStorage.getItem(STRATEGY_STORAGE_KEY) || 'summary';
+            const profileId = localStorage.getItem(PROFILE_STORAGE_KEY) || '';
+            
+            let url = `/chat.html?session=${newId}&strategy=${strategy}`;
+            if (profileId) {
+                url += `&profile=${profileId}`;
+            }
+            window.location.href = url;
+        }
+
         // Load sessions on page load
         document.addEventListener('DOMContentLoaded', () => {
             loadStrategy();
+            loadProfiles();
             loadSessions();
             document.getElementById('save-strategy').addEventListener('click', saveStrategy);
+            document.getElementById('save-profile').addEventListener('click', saveProfile);
+            document.getElementById('edit-profiles').addEventListener('click', editProfiles);
         });
     </script>
 </body>
