@@ -23,25 +23,25 @@ const (
 
 // Profile holds user profile configuration for AI interactions.
 type Profile struct {
-	ID          string
-	Name        string
-	Style       string
-	Constraints string
-	Context     string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	IsDefault   bool
+	ID          string    `json:"id"`
+	Name        string    `json:"name"`
+	Style       string    `json:"style"`
+	Constraints string    `json:"constraints"`
+	Context     string    `json:"context"`
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
+	IsDefault   bool      `json:"is_default"`
 }
 
 // Session holds the conversation history for a single user session.
 type Session struct {
-	ID        string
-	History   []Message
-	Strategy  string // one of StrategySummary, StrategySlidingWindow, StrategyStickyFacts
-	Facts     string // plain text facts extracted from conversation
-	ProfileID string // optional profile ID
-	CreatedAt time.Time
-	UpdatedAt time.Time
+	ID        string    `json:"id"`
+	History   []Message `json:"history"`
+	Strategy  string    `json:"strategy"`   // one of StrategySummary, StrategySlidingWindow, StrategyStickyFacts
+	Facts     string    `json:"facts"`      // plain text facts extracted from conversation
+	ProfileID string    `json:"profile_id"` // optional profile ID
+	CreatedAt time.Time `json:"created_at"`
+	UpdatedAt time.Time `json:"updated_at"`
 }
 
 // Storage defines the interface for persisting sessions and messages.

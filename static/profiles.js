@@ -45,7 +45,30 @@ async function loadProfiles() {
             throw new Error(`HTTP ${response.status}: ${await response.text()}`);
         }
         
-        profiles = await response.json();
+        let rawProfiles = await response.json();
+        console.log('Raw profiles loaded from API:', rawProfiles);
+        
+        // Normalize field names: handle both uppercase (ID, Name, IsDefault) and lowercase (id, name, is_default)
+        profiles = rawProfiles.map(profile => {
+            // Create a normalized profile object
+            const normalized = {
+                id: profile.id || profile.ID || '',
+                name: profile.name || profile.Name || '',
+                style: profile.style || profile.Style || '',
+                constraints: profile.constraints || profile.Constraints || '',
+                context: profile.context || profile.Context || '',
+                created_at: profile.created_at || profile.CreatedAt || '',
+                updated_at: profile.updated_at || profile.UpdatedAt || '',
+                is_default: profile.is_default !== undefined ? profile.is_default :
+                           (profile.IsDefault !== undefined ? profile.IsDefault : false)
+            };
+            return normalized;
+        });
+        
+        console.log('Normalized profiles:', profiles);
+        console.log('First profile normalized ID:', profiles[0] ? profiles[0].id : 'No ID');
+        console.log('First profile normalized name:', profiles[0] ? profiles[0].name : 'No name');
+        
         renderProfilesList();
         
         // If no profile is selected but we have profiles, select the first one
@@ -68,7 +91,11 @@ async function loadProfiles() {
 
 // Render profiles list
 function renderProfilesList() {
+    console.log('renderProfilesList called, profiles count:', profiles.length);
+    console.log('Profiles array:', profiles);
+    
     if (profiles.length === 0) {
+        console.log('No profiles, showing empty state');
         profilesList.innerHTML = `
             <div class="empty-state">
                 <i class="fas fa-users"></i>
@@ -78,13 +105,19 @@ function renderProfilesList() {
         return;
     }
     
+    console.log('First profile object:', profiles[0]);
+    console.log('First profile.id:', profiles[0].id);
+    console.log('First profile.ID:', profiles[0].ID);
+    console.log('First profile.name:', profiles[0].name);
+    console.log('First profile.Name:', profiles[0].Name);
+    
     profilesList.innerHTML = profiles.map(profile => `
-        <div class="profile-card ${selectedProfileId === profile.id ? 'selected' : ''}" 
+        <div class="profile-card ${selectedProfileId === profile.id ? 'selected' : ''}"
              data-profile-id="${profile.id}">
             <div class="profile-card-header">
                 <h3 class="profile-name">${escapeHtml(profile.name)}</h3>
-                ${profile.is_default ? 
-                    '<span class="profile-default-badge"><i class="fas fa-star"></i> Default</span>' : 
+                ${profile.is_default ?
+                    '<span class="profile-default-badge"><i class="fas fa-star"></i> Default</span>' :
                     ''}
             </div>
             <div class="profile-preview">
@@ -94,10 +127,10 @@ function renderProfilesList() {
                 <button class="btn-edit" onclick="editProfile('${profile.id}')">
                     <i class="fas fa-edit"></i> Edit
                 </button>
-                ${profile.id !== '00000000-0000-0000-0000-000000000000' ? 
+                ${profile.id !== '00000000-0000-0000-0000-000000000000' ?
                     `<button class="btn-delete-profile" onclick="deleteProfile('${profile.id}')">
                         <i class="fas fa-trash"></i> Delete
-                    </button>` : 
+                    </button>` :
                     ''}
             </div>
         </div>
