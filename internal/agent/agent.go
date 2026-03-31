@@ -423,6 +423,12 @@ func (a *Agent) CopySession(sourceID string, newID string) error {
 			return err
 		}
 	}
+	// Copy profile
+	if source.ProfileID != "" {
+		if err := a.storage.UpdateSessionProfile(newID, source.ProfileID); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

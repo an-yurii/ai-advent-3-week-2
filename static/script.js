@@ -27,6 +27,20 @@ function getStrategy() {
     return 'summary';
 }
 
+// Get profile ID from URL query parameter, else localStorage, else empty string
+function getProfileId() {
+    const params = new URLSearchParams(window.location.search);
+    const urlProfile = params.get('profile');
+    if (urlProfile) {
+        return urlProfile;
+    }
+    const saved = localStorage.getItem('selectedProfileId');
+    if (saved) {
+        return saved;
+    }
+    return '';
+}
+
 let sessionId = getSessionIdFromUrl();
 if (!sessionId) {
     sessionId = localStorage.getItem('sessionId');
@@ -115,6 +129,38 @@ async function loadSessionHistory() {
     }
 }
 
+// Load and display profile information
+async function loadProfileInfo() {
+    const profileId = getProfileId();
+    if (!profileId) {
+        // No profile selected
+        document.getElementById('profile-info').style.display = 'none';
+        return;
+    }
+    
+    try {
+        const response = await fetch(`/api/profiles/${profileId}`);
+        if (!response.ok) {
+            if (response.status === 404) {
+                // Profile not found
+                document.getElementById('profile-name').textContent = 'Not found';
+                document.getElementById('profile-info').style.display = 'block';
+                return;
+            }
+            throw new Error(`HTTP ${response.status}: ${await response.text()}`);
+        }
+        const profile = await response.json();
+        // Normalize field names
+        const profileName = profile.name || profile.Name || 'Unknown';
+        document.getElementById('profile-name').textContent = profileName;
+        document.getElementById('profile-info').style.display = 'block';
+    } catch (error) {
+        console.error('Failed to load profile:', error);
+        document.getElementById('profile-name').textContent = 'Error loading';
+        document.getElementById('profile-info').style.display = 'block';
+    }
+}
+
 // Update token counters in the UI
 function updateTokenCounts(prompt, completion, total) {
     document.getElementById('token-prompt').textContent = prompt;
@@ -139,7 +185,8 @@ async function sendMessage() {
             body: JSON.stringify({
                 message: text,
                 session_id: sessionId,
-                strategy: getStrategy()
+                strategy: getStrategy(),
+                profile_id: getProfileId()
             })
         });
 
@@ -208,9 +255,17 @@ async function copyDialogue() {
         url.searchParams.set('session', sessionId);
         const strategy = getStrategy();
         url.searchParams.set('strategy', strategy);
+        const profileId = getProfileId();
+        if (profileId) {
+            url.searchParams.set('profile', profileId);
+        } else {
+            url.searchParams.delete('profile');
+        }
         window.history.pushState({}, '', url);
         // Show toast
         showToast('Dialogue copied to new session!', 'info');
+        // Refresh profile display
+        loadProfileInfo();
     } catch (error) {
         console.error('Error copying dialogue:', error);
         addMessage('system', `Error copying dialogue: ${error.message}`);
@@ -237,13 +292,21 @@ function newSession() {
         addMessage('system', 'New session started. Previous history is cleared on the server.');
         // Reset token counters
         updateTokenCounts(0, 0, 0);
-        // Update URL without reload, include current strategy
+        // Update URL without reload, include current strategy and profile
         const url = new URL(window.location);
         url.searchParams.set('session', sessionId);
         const strategy = getStrategy();
         url.searchParams.set('strategy', strategy);
+        const profileId = getProfileId();
+        if (profileId) {
+            url.searchParams.set('profile', profileId);
+        } else {
+            url.searchParams.delete('profile');
+        }
         window.history.pushState({}, '', url);
         showToast('New chat session created!', 'info');
+        // Refresh profile display
+        loadProfileInfo();
     }
 }
 
@@ -274,5 +337,6 @@ if (backToLandingButton) {
 // Load history on page load
 document.addEventListener('DOMContentLoaded', () => {
     loadSessionHistory();
+    loadProfileInfo();
     messageInput.focus();
 });
