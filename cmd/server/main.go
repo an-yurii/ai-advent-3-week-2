@@ -120,16 +120,29 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// Update session profile if provided
+	// Update session profile if provided, but only if session doesn't already have a profile
 	if req.ProfileID != "" {
 		// Ensure session exists (idempotent)
 		if err := store.CreateSession(req.SessionID); err != nil {
 			log.Printf("Failed to create session for profile update: %v", err)
 			// Continue anyway, SendMessage will also try to create
 		} else {
-			if err := store.UpdateSessionProfile(req.SessionID, req.ProfileID); err != nil {
-				log.Printf("Failed to update session profile: %v", err)
-				// Non‑fatal, proceed without profile
+			// Check if session already has a profile
+			session, err := store.GetSession(req.SessionID)
+			if err != nil {
+				log.Printf("Failed to retrieve session for profile check: %v", err)
+				// Proceed with update as fallback
+			} else if session != nil && session.ProfileID != "" {
+				log.Printf("Session %s already has profile %s, keeping it (requested profile %s)", req.SessionID, session.ProfileID, req.ProfileID)
+				// Skip updating profile
+			} else {
+				// Session has no profile, update with requested profile
+				if err := store.UpdateSessionProfile(req.SessionID, req.ProfileID); err != nil {
+					log.Printf("Failed to update session profile: %v", err)
+					// Non‑fatal, proceed without profile
+				} else {
+					log.Printf("Updated session %s profile to %s", req.SessionID, req.ProfileID)
+				}
 			}
 		}
 	}
