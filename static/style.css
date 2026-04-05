@@ -412,3 +412,108 @@ footer a:hover {
         max-width: calc(100% - 40px);
     }
 }
+
+/* State Display Styles */
+.state-display {
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    color: white;
+    border-radius: 12px;
+    margin: 1rem 1rem 0.5rem 1rem;
+    padding: 1rem;
+    box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+    display: none;
+}
+
+.state-container {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.state-icon {
+    font-size: 2rem;
+    opacity: 0.9;
+}
+
+.state-content {
+    flex: 1;
+}
+
+.state-content h3 {
+    margin: 0 0 0.5rem 0;
+    font-size: 1.1rem;
+    font-weight: 600;
+}
+
+.state-progress {
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+    margin-bottom: 0.5rem;
+}
+
+.progress-bar {
+    flex: 1;
+    height: 8px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 4px;
+    overflow: hidden;
+}
+
+.progress-fill {
+    height: 100%;
+    background: #4ade80;
+    border-radius: 4px;
+    width: 0%;
+    transition: width 0.3s ease;
+}
+
+.progress-text {
+    font-size: 0.9rem;
+    font-weight: 500;
+    min-width: 80px;
+}
+
+.state-description {
+    margin: 0.25rem 0;
+    font-size: 0.95rem;
+    opacity: 0.9;
+}
+
+.state-status {
+    margin-top: 0.5rem;
+    padding: 0.5rem;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 6px;
+    font-size: 0.9rem;
+    display: none;
+}
+
+.state-status.completed {
+    background: rgba(74, 222, 128, 0.2);
+    color: #4ade80;
+}
+
+.state-status.error {
+    background: rgba(239, 68, 68, 0.2);
+    color: #ef4444;
+}
+
+.state-refresh {
+    background: rgba(255, 255, 255, 0.2);
+    border: none;
+    color: white;
+    width: 36px;
+    height: 36px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: background 0.2s;
+}
+
+.state-refresh:hover {
+    background: rgba(255, 255, 255, 0.3);
+}
+}

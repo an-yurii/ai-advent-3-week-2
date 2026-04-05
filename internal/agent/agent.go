@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"strings"
 
+	"ai-agent-gigachat/internal/agent/fsm"
 	"ai-agent-gigachat/internal/logging"
 	"ai-agent-gigachat/internal/storage"
 	"ai-agent-gigachat/internal/storage/memory"
@@ -72,6 +73,7 @@ type Agent struct {
 	storage       storage.Storage
 	logger        *logging.Logger
 	historyConfig HistoryConfig
+	fsm           *fsm.FSM // optional FSM for task state management
 }
 
 // NewAgent creates a new Agent with the given API key and optional storage.
@@ -83,11 +85,25 @@ func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
 	} else {
 		store = memory.New()
 	}
+
+	// Try to load FSM config if available
+	var fsmInstance *fsm.FSM
+	if configPath := os.Getenv("FSM_CONFIG_PATH"); configPath != "" {
+		fsmInstance, _ = fsm.NewFSM(configPath, store)
+		// Log warning if FSM fails to load, but don't fail agent creation
+		if fsmInstance == nil {
+			logging.Default().Warn("Failed to load FSM config", "path", configPath)
+		} else {
+			logging.Default().Info("FSM loaded successfully", "path", configPath)
+		}
+	}
+
 	return &Agent{
 		client:        NewGigaChatClient(apiKey),
 		storage:       store,
 		logger:        logging.Default(),
 		historyConfig: loadHistoryConfig(),
+		fsm:           fsmInstance,
 	}
 }
 
@@ -188,6 +204,20 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 	userMsg := Message{Role: "user", Content: userMessage}
 	if err := a.storage.AddMessage(sessionID, toStorageMessage(userMsg)); err != nil {
 		return nil, err
+	}
+
+	// Initialize FSM if this is the first user message and FSM is available
+	if a.fsm != nil {
+		// Check if this is the first user message in the session
+		storageSession, err := a.storage.GetSession(sessionID)
+		if err != nil {
+			a.logger.LogError(err, "failed to get session for FSM initialization")
+		} else if storageSession != nil && len(storageSession.History) == 1 {
+			// This is the first message (we just added it)
+			if err := a.fsm.InitializeSession(sessionID, userMessage); err != nil {
+				a.logger.LogError(err, "failed to initialize FSM")
+			}
+		}
 	}
 
 	// Retrieve the full conversation history (including the newly added message)
@@ -344,6 +374,13 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		a.logger.LogError(err, "failed to store assistant message")
 	}
 
+	// Process FSM transition if FSM is available
+	if a.fsm != nil {
+		if _, err := a.fsm.ProcessResponse(sessionID, result.Content); err != nil {
+			a.logger.LogError(err, "FSM processing failed")
+		}
+	}
+
 	// If strategy is sticky_facts, update facts after the new message
 	if strategy == storage.StrategyStickyFacts {
 		// Retrieve updated session history (including the newly added assistant message)
@@ -445,6 +482,14 @@ func (a *Agent) ClearAllSessions() error {
 		}
 	}
 	return nil
+}
+
+// GetFSMStateInfo returns FSM state information for a session.
+func (a *Agent) GetFSMStateInfo(sessionID string) (*fsm.StateInfo, error) {
+	if a.fsm == nil {
+		return nil, errors.New("FSM not configured")
+	}
+	return a.fsm.GetStateInfo(sessionID)
 }
 
 // ErrSessionNotFound is returned when a session does not exist.

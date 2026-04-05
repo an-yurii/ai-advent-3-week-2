@@ -30,6 +30,30 @@
                         <i class="fas fa-user-circle"></i> Profile: <span id="profile-name">None</span>
                     </div>
                 </div>
+                <!-- State Display Section -->
+                <div class="state-display" id="state-display" style="display: none;">
+                    <div class="state-container">
+                        <div class="state-icon">
+                            <i class="fas fa-project-diagram"></i>
+                        </div>
+                        <div class="state-content">
+                            <h3 id="state-title">Состояние задачи</h3>
+                            <div class="state-info">
+                                <div class="state-progress">
+                                    <div class="progress-bar">
+                                        <div class="progress-fill" id="progress-fill"></div>
+                                    </div>
+                                    <span class="progress-text" id="progress-text">Шаг 1 из 3</span>
+                                </div>
+                                <p class="state-description" id="state-description"></p>
+                                <div class="state-status" id="state-status"></div>
+                            </div>
+                        </div>
+                        <button class="state-refresh" id="refresh-state" title="Обновить состояние">
+                            <i class="fas fa-sync-alt"></i>
+                        </button>
+                    </div>
+                </div>
                 <div class="chat-messages" id="chat-messages">
                     <div class="message system">
                         <div class="avatar"><i class="fas fa-info-circle"></i></div>

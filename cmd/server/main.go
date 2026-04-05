@@ -78,6 +78,7 @@ func main() {
 	http.HandleFunc("/api/sessions/", handleSession)
 	http.HandleFunc("/api/profiles", handleProfiles)
 	http.HandleFunc("/api/profiles/", handleProfile)
+	http.HandleFunc("/api/session/state/", handleSessionState)
 
 	port := ":8080"
 	log.Printf("Server starting on %s", port)
@@ -154,8 +155,23 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	w.Header().Set("Content-Type", "application/json")
-	json.NewEncoder(w).Encode(map[string]interface{}{
+	// Get FSM state info if available
+	var fsmState map[string]interface{}
+	if aiAgent != nil {
+		stateInfo, err := aiAgent.GetFSMStateInfo(req.SessionID)
+		if err == nil && stateInfo != nil {
+			fsmState = map[string]interface{}{
+				"step_number": stateInfo.StepNumber,
+				"steps_count": stateInfo.StepsCount,
+				"description": stateInfo.Description,
+				"state":       stateInfo.State,
+				"done":        stateInfo.Done,
+				"error":       stateInfo.Error,
+			}
+		}
+	}
+
+	response := map[string]interface{}{
 		"response":   result.Content,
 		"session_id": req.SessionID,
 		"usage": map[string]interface{}{
@@ -163,7 +179,85 @@ func handleChat(w http.ResponseWriter, r *http.Request) {
 			"completion_tokens": result.Usage.CompletionTokens,
 			"total_tokens":      result.Usage.TotalTokens,
 		},
-	})
+	}
+
+	// Add FSM state if available
+	if fsmState != nil {
+		response["fsm_state"] = fsmState
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
+}
+
+// handleSessionState returns FSM state for a session (GET /api/session/state/{sessionID})
+func handleSessionState(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "Method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	// Extract session ID from URL path
+	pathParts := strings.Split(r.URL.Path, "/")
+	if len(pathParts) < 5 {
+		http.Error(w, "Invalid URL", http.StatusBadRequest)
+		return
+	}
+	sessionID := pathParts[4]
+
+	if aiAgent == nil {
+		http.Error(w, "Agent not initialized", http.StatusServiceUnavailable)
+		return
+	}
+
+	stateInfo, err := aiAgent.GetFSMStateInfo(sessionID)
+	if err != nil {
+		// Check if error is because FSM is not configured
+		if err.Error() == "FSM not configured" {
+			// Return empty state info
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]interface{}{
+				"initialized": false,
+				"message":     "FSM not configured for this session",
+			})
+			return
+		}
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	if stateInfo == nil {
+		// No FSM context
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(map[string]interface{}{
+			"initialized": false,
+			"message":     "No FSM context for this session",
+		})
+		return
+	}
+
+	// Get task context for additional details
+	var taskContext *storage.TaskContext
+	if store != nil {
+		taskContext, _ = store.GetTaskContext(sessionID)
+	}
+
+	response := map[string]interface{}{
+		"step_number": stateInfo.StepNumber,
+		"steps_count": stateInfo.StepsCount,
+		"description": stateInfo.Description,
+		"state":       stateInfo.State,
+		"done":        stateInfo.Done,
+		"error":       stateInfo.Error,
+		"initialized": true,
+	}
+
+	if taskContext != nil {
+		response["task"] = taskContext.Task
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(response)
 }
 
 // handleSessions returns list of sessions (GET /api/sessions)

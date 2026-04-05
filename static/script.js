@@ -196,6 +196,7 @@ async function sendMessage() {
 
         const data = await response.json();
         addMessage('assistant', data.response);
+        
         // Update token counts if available
         if (data.usage) {
             updateTokenCounts(
@@ -204,6 +205,30 @@ async function sendMessage() {
                 data.usage.total_tokens
             );
         }
+        
+        // Update FSM state display if available
+        if (data.fsm_state) {
+            // Format state info for updateStateDisplay function
+            const stateInfo = {
+                initialized: true,
+                step_number: data.fsm_state.step_number || 1,
+                steps_count: data.fsm_state.steps_count || 1,
+                description: data.fsm_state.description || '',
+                state: data.fsm_state.state || '',
+                done: data.fsm_state.done || false,
+                error: data.fsm_state.error || false
+            };
+            updateStateDisplay(stateInfo);
+        } else {
+            // No FSM state - hide the display
+            updateStateDisplay(null);
+        }
+        
+        // Refresh state display after a short delay to ensure it's up-to-date
+        setTimeout(() => {
+            updateStateAfterMessage(sessionId);
+        }, 500);
+        
     } catch (error) {
         console.error('Error sending message:', error);
         addMessage('system', `Error: ${error.message}`);
@@ -315,6 +340,101 @@ function goToLanding() {
     window.location.href = '/';
 }
 
+// State Management Functions
+function updateStateDisplay(stateInfo) {
+    const stateDisplay = document.getElementById('state-display');
+    const progressFill = document.getElementById('progress-fill');
+    const progressText = document.getElementById('progress-text');
+    const stateDescription = document.getElementById('state-description');
+    const stateStatus = document.getElementById('state-status');
+    
+    if (!stateInfo || !stateInfo.initialized) {
+        // No FSM context - hide state display
+        stateDisplay.style.display = 'none';
+        return;
+    }
+    
+    // Show state display
+    stateDisplay.style.display = 'block';
+    
+    if (stateInfo.done) {
+        // Task completed
+        progressFill.style.width = '100%';
+        progressText.textContent = 'Завершено';
+        stateDescription.textContent = '';
+        stateStatus.textContent = 'Задача выполнена';
+        stateStatus.className = 'state-status completed';
+        stateStatus.style.display = 'block';
+        return;
+    }
+    
+    if (stateInfo.error) {
+        // Error in configuration
+        progressFill.style.width = '0%';
+        progressText.textContent = 'Ошибка';
+        stateDescription.textContent = '';
+        stateStatus.textContent = 'Ошибка в настройках';
+        stateStatus.className = 'state-status error';
+        stateStatus.style.display = 'block';
+        return;
+    }
+    
+    // Normal state display
+    const progressPercent = (stateInfo.step_number / stateInfo.steps_count) * 100;
+    progressFill.style.width = `${progressPercent}%`;
+    progressText.textContent = `Шаг ${stateInfo.step_number} из ${stateInfo.steps_count}`;
+    stateDescription.textContent = stateInfo.description || '';
+    stateStatus.style.display = 'none';
+}
+
+// Fetch current state from API
+async function fetchCurrentState(sessionId) {
+    try {
+        const response = await fetch(`/api/session/state/${sessionId}`);
+        if (!response.ok) {
+            throw new Error(`HTTP ${response.status}`);
+        }
+        return await response.json();
+    } catch (error) {
+        console.error('Failed to fetch state:', error);
+        return null;
+    }
+}
+
+// Update state after each message
+function updateStateAfterMessage(sessionId) {
+    setTimeout(async () => {
+        const stateInfo = await fetchCurrentState(sessionId);
+        updateStateDisplay(stateInfo);
+    }, 500); // Small delay to allow backend processing
+}
+
+// Manual refresh button
+function setupStateRefreshButton() {
+    const refreshButton = document.getElementById('refresh-state');
+    if (refreshButton) {
+        refreshButton.addEventListener('click', async function() {
+            const sessionId = getCurrentSessionId();
+            if (sessionId) {
+                const stateInfo = await fetchCurrentState(sessionId);
+                updateStateDisplay(stateInfo);
+                
+                // Show refresh feedback
+                const icon = this.querySelector('i');
+                icon.className = 'fas fa-check';
+                setTimeout(() => {
+                    icon.className = 'fas fa-sync-alt';
+                }, 1000);
+            }
+        });
+    }
+}
+
+// Get current session ID
+function getCurrentSessionId() {
+    return sessionId;
+}
+
 // Event listeners
 sendButton.addEventListener('click', sendMessage);
 messageInput.addEventListener('keydown', (e) => {
@@ -339,4 +459,12 @@ document.addEventListener('DOMContentLoaded', () => {
     loadSessionHistory();
     loadProfileInfo();
     messageInput.focus();
+    
+    // Initialize state display
+    if (sessionId) {
+        fetchCurrentState(sessionId);
+    }
+    
+    // Setup state refresh button
+    setupStateRefreshButton();
 });

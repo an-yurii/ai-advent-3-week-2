@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -137,9 +138,10 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 	var strategy string
 	var factsText string
 	var profileID *string // Use pointer to handle NULL
+	var taskContextData []byte
 	err := s.pool.QueryRow(ctx,
-		`SELECT created_at, updated_at, strategy, facts, profile_id FROM sessions WHERE id = $1`, id).
-		Scan(&createdAt, &updatedAt, &strategy, &factsText, &profileID)
+		`SELECT created_at, updated_at, strategy, facts, profile_id, task_context FROM sessions WHERE id = $1`, id).
+		Scan(&createdAt, &updatedAt, &strategy, &factsText, &profileID, &taskContextData)
 	if err == pgx.ErrNoRows {
 		return nil, nil
 	}
@@ -183,14 +185,25 @@ func (s *PostgresStorage) GetSession(id string) (*storage.Session, error) {
 		profileIDStr = *profileID
 	}
 
+	// Parse task context if present
+	var taskCtx *storage.TaskContext
+	if taskContextData != nil && len(taskContextData) > 0 {
+		var parsedTaskCtx storage.TaskContext
+		if err := json.Unmarshal(taskContextData, &parsedTaskCtx); err == nil {
+			taskCtx = &parsedTaskCtx
+		}
+		// If unmarshal fails, we just leave taskCtx as nil
+	}
+
 	return &storage.Session{
-		ID:        id,
-		History:   history,
-		Strategy:  strategy,
-		Facts:     factsText,
-		ProfileID: profileIDStr,
-		CreatedAt: createdAt,
-		UpdatedAt: updatedAt,
+		ID:          id,
+		History:     history,
+		Strategy:    strategy,
+		Facts:       factsText,
+		ProfileID:   profileIDStr,
+		TaskContext: taskCtx,
+		CreatedAt:   createdAt,
+		UpdatedAt:   updatedAt,
 	}, nil
 }
 
@@ -509,6 +522,51 @@ func (s *PostgresStorage) GetDefaultProfile() (*storage.Profile, error) {
 		return nil, fmt.Errorf("failed to get default profile: %w", err)
 	}
 	return &p, nil
+}
+
+// UpdateTaskContext updates or creates task context for a session.
+func (s *PostgresStorage) UpdateTaskContext(sessionID string, taskCtx *storage.TaskContext) error {
+	ctx := context.Background()
+
+	jsonData, err := json.Marshal(taskCtx)
+	if err != nil {
+		return fmt.Errorf("failed to marshal task context: %w", err)
+	}
+
+	query := `UPDATE sessions SET task_context = $1, updated_at = NOW() WHERE id = $2`
+	_, err = s.pool.Exec(ctx, query, jsonData, sessionID)
+	if err != nil {
+		return fmt.Errorf("failed to update task context: %w", err)
+	}
+
+	return nil
+}
+
+// GetTaskContext retrieves task context for a session.
+func (s *PostgresStorage) GetTaskContext(sessionID string) (*storage.TaskContext, error) {
+	ctx := context.Background()
+	var jsonData []byte
+
+	query := `SELECT task_context FROM sessions WHERE id = $1`
+	err := s.pool.QueryRow(ctx, query, sessionID).Scan(&jsonData)
+	if err != nil {
+		if err == pgx.ErrNoRows {
+			return nil, storage.ErrSessionNotFound
+		}
+		return nil, fmt.Errorf("failed to query task context: %w", err)
+	}
+
+	if jsonData == nil {
+		// No task context yet
+		return nil, nil
+	}
+
+	var taskCtx storage.TaskContext
+	if err := json.Unmarshal(jsonData, &taskCtx); err != nil {
+		return nil, fmt.Errorf("failed to unmarshal task context: %w", err)
+	}
+
+	return &taskCtx, nil
 }
 
 // Close releases the connection pool.

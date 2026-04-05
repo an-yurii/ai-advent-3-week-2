@@ -1,0 +1,52 @@
+# Finite State Machine Configuration for User Response Processing
+# This file defines states, transitions, and validation rules for the task workflow
+
+fsm_config:
+  # Initial state when a new task is created
+  initial_state: gathering_requirements
+
+states:
+  # State 1: Gathering requirements from user
+  gathering_requirements:
+    step_number: 1
+    description: Сбор вводных данных от пользователя
+    instructions: Запроси у пользователя цель проекта, бюджет и дедлайн.
+    validation_schema:
+      check_list:
+        - Цель сформулирована конкретно
+        - Бюджет указан в числах
+        - Дедлайн содержит дату или срок
+    # Next state on successful validation
+    on_success: market_analysis
+    # State to stay in on validation failure
+    on_fail: gathering_requirements
+
+  # State 2: Market analysis based on gathered requirements
+  market_analysis:
+    step_number: 2
+    description: Анализ конкурентов
+    instructions: Найди 3 основных конкурента и выдели их сильные стороны на основе бюджета из шага 1.
+    validation_schema:
+      check_list:
+        - Найдено не менее 3 компаний
+        - Для каждой указано минимум 2 преимущества
+    on_success: final_report
+    on_fail: market_analysis
+
+  # State 3: Final report generation
+  final_report:
+    step_number: 3
+    description: Формирование отчета
+    instructions: Составь итоговый PDF-отчет на основе собранных данных.
+    validation_schema:
+      check_list:
+        - Ссылка на отчет валидна
+    # Special state 'exit' indicates task completion
+    on_success: exit
+    on_fail: final_report
+
+# Notes:
+# - The 'exit' state is special and triggers task completion (done = true)
+# - Validation is performed after each LLM response
+# - Step numbers are used for UI display (Шаг X из Y)
+# - Total steps count is calculated as number of states with step_number > 0

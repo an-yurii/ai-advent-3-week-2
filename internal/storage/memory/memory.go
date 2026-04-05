@@ -47,14 +47,22 @@ func (m *MemoryStorage) GetSession(id string) (*storage.Session, error) {
 	history := make([]storage.Message, len(session.History))
 	copy(history, session.History)
 	facts := session.Facts // string copy
+
+	var taskCtxCopy *storage.TaskContext
+	if session.TaskContext != nil {
+		copyTaskCtx := *session.TaskContext
+		taskCtxCopy = &copyTaskCtx
+	}
+
 	return &storage.Session{
-		ID:        id,
-		History:   history,
-		Strategy:  session.Strategy,
-		Facts:     facts,
-		ProfileID: session.ProfileID,
-		CreatedAt: session.CreatedAt,
-		UpdatedAt: session.UpdatedAt,
+		ID:          id,
+		History:     history,
+		Strategy:    session.Strategy,
+		Facts:       facts,
+		ProfileID:   session.ProfileID,
+		TaskContext: taskCtxCopy,
+		CreatedAt:   session.CreatedAt,
+		UpdatedAt:   session.UpdatedAt,
 	}, nil
 }
 
@@ -265,6 +273,42 @@ func (m *MemoryStorage) GetDefaultProfile() (*storage.Profile, error) {
 		}
 	}
 	return nil, nil // No default profile
+}
+
+// UpdateTaskContext updates or creates task context for a session.
+func (m *MemoryStorage) UpdateTaskContext(sessionID string, taskCtx *storage.TaskContext) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	session, exists := m.sessions[sessionID]
+	if !exists {
+		return storage.ErrSessionNotFound
+	}
+
+	// Create a copy of the task context to avoid mutation
+	copyTaskCtx := *taskCtx
+	session.TaskContext = &copyTaskCtx
+
+	return nil
+}
+
+// GetTaskContext retrieves task context for a session.
+func (m *MemoryStorage) GetTaskContext(sessionID string) (*storage.TaskContext, error) {
+	m.mu.RLock()
+	defer m.mu.RUnlock()
+
+	session, exists := m.sessions[sessionID]
+	if !exists {
+		return nil, storage.ErrSessionNotFound
+	}
+
+	if session.TaskContext == nil {
+		return nil, nil
+	}
+
+	// Return a copy to avoid mutation
+	copyTaskCtx := *session.TaskContext
+	return &copyTaskCtx, nil
 }
 
 // Close releases any resources held by the storage (no‑op for memory).

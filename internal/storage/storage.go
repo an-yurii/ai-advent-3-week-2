@@ -33,15 +33,24 @@ type Profile struct {
 	IsDefault   bool      `json:"is_default"`
 }
 
+// TaskContext holds the finite state machine context for a session.
+type TaskContext struct {
+	State    string                 `json:"state"`
+	Task     string                 `json:"task"` // First user message
+	Done     bool                   `json:"done"`
+	Metadata map[string]interface{} `json:"metadata"` // step_number, transition_history, etc.
+}
+
 // Session holds the conversation history for a single user session.
 type Session struct {
-	ID        string    `json:"id"`
-	History   []Message `json:"history"`
-	Strategy  string    `json:"strategy"`   // one of StrategySummary, StrategySlidingWindow, StrategyStickyFacts
-	Facts     string    `json:"facts"`      // plain text facts extracted from conversation
-	ProfileID string    `json:"profile_id"` // optional profile ID
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID          string       `json:"id"`
+	History     []Message    `json:"history"`
+	Strategy    string       `json:"strategy"`               // one of StrategySummary, StrategySlidingWindow, StrategyStickyFacts
+	Facts       string       `json:"facts"`                  // plain text facts extracted from conversation
+	ProfileID   string       `json:"profile_id"`             // optional profile ID
+	TaskContext *TaskContext `json:"task_context,omitempty"` // optional FSM context
+	CreatedAt   time.Time    `json:"created_at"`
+	UpdatedAt   time.Time    `json:"updated_at"`
 }
 
 // Storage defines the interface for persisting sessions and messages.
@@ -88,6 +97,10 @@ type Storage interface {
 	DeleteProfile(id string) error
 	SetDefaultProfile(id string) error
 	GetDefaultProfile() (*Profile, error)
+
+	// TaskContext management methods
+	UpdateTaskContext(sessionID string, context *TaskContext) error
+	GetTaskContext(sessionID string) (*TaskContext, error)
 
 	// Close releases any resources held by the storage.
 	Close() error
