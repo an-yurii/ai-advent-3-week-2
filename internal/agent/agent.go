@@ -77,6 +77,42 @@ type Agent struct {
 	fsm           *fsm.FSM // optional FSM for task state management
 }
 
+// gigachatLLMClientAdapter adapts GigaChatClient to fsm.LLMClient interface
+type gigachatLLMClientAdapter struct {
+	client *GigaChatClient
+}
+
+// SendMessage implements fsm.LLMClient interface for validation.
+func (a *gigachatLLMClientAdapter) SendMessage(messages []fsm.Message) (*fsm.CompletionResult, error) {
+	// Convert fsm.Message to agent.Message
+	agentMessages := make([]Message, len(messages))
+	for i, msg := range messages {
+		agentMessages[i] = Message{
+			Role:    msg.Role,
+			Content: msg.Content,
+		}
+	}
+
+	// Call the actual GigaChat client
+	result, err := a.client.SendMessage(agentMessages)
+	if err != nil {
+		return nil, err
+	}
+
+	// Convert agent.CompletionResult to fsm.CompletionResult
+	fsmResult := &fsm.CompletionResult{
+		Content: result.Content,
+	}
+	// Copy usage if available
+	if result.Usage != nil {
+		fsmResult.Usage.PromptTokens = result.Usage.PromptTokens
+		fsmResult.Usage.CompletionTokens = result.Usage.CompletionTokens
+		fsmResult.Usage.TotalTokens = result.Usage.TotalTokens
+	}
+
+	return fsmResult, nil
+}
+
 // NewAgent creates a new Agent with the given API key and optional storage.
 // If storage is not provided, an in‑memory storage is used.
 func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
@@ -90,12 +126,41 @@ func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
 	// Try to load FSM config if available
 	var fsmInstance *fsm.FSM
 	if configPath := os.Getenv("FSM_CONFIG_PATH"); configPath != "" {
-		fsmInstance, _ = fsm.NewFSM(configPath, store)
-		// Log warning if FSM fails to load, but don't fail agent creation
-		if fsmInstance == nil {
-			logging.Default().Warn("Failed to load FSM config", "path", configPath)
+		// First try to create FSM with LLM validator
+		config, err := fsm.LoadConfig(configPath)
+		if err != nil {
+			logging.Default().Warn("Failed to load FSM config, using stub validator", "path", configPath, "error", err)
+			fsmInstance, _ = fsm.NewFSM(configPath, store)
 		} else {
-			logging.Default().Info("FSM loaded successfully", "path", configPath)
+			// Create adapter for GigaChat client
+			gigaClient := NewGigaChatClient(apiKey)
+			adapter := &gigachatLLMClientAdapter{client: gigaClient}
+
+			// Create LLM validator
+			validator, err := fsm.NewLLMValidator(adapter, config)
+			if err != nil {
+				logging.Default().Warn("Failed to create LLM validator, using stub validator", "error", err)
+				fsmInstance, _ = fsm.NewFSM(configPath, store)
+			} else {
+				// Create FSM with LLM validator
+				fsmInstance, err = fsm.NewFSMWithValidator(configPath, store, validator)
+				if err != nil {
+					logging.Default().Warn("Failed to create FSM with validator, using stub validator", "error", err)
+					fsmInstance, _ = fsm.NewFSM(configPath, store)
+				} else {
+					logging.Default().Info("FSM loaded successfully with LLM validator", "path", configPath)
+				}
+			}
+		}
+
+		// Fallback if still nil
+		if fsmInstance == nil {
+			fsmInstance, _ = fsm.NewFSM(configPath, store)
+			if fsmInstance != nil {
+				logging.Default().Info("FSM loaded successfully with stub validator (fallback)", "path", configPath)
+			} else {
+				logging.Default().Warn("Failed to load FSM config", "path", configPath)
+			}
 		}
 	}
 
