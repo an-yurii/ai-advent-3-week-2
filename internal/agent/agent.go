@@ -365,6 +365,9 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		history = append([]Message{*fsmContextMsg}, history...)
 	}
 
+	// Merge consecutive system messages at the beginning to avoid GigaChat API error
+	history = mergeSystemMessages(history)
+
 	// Send the (possibly compressed) history to GigaChat
 	result, err := a.client.SendMessage(history)
 	if err != nil {
@@ -629,6 +632,46 @@ func (a *Agent) shouldMakeAutomaticRequest(sessionID string, taskContext *storag
 	return true
 }
 
+// mergeSystemMessages merges consecutive system messages at the beginning of the history
+// into a single system message. This is required because GigaChat API expects
+// at most one system message at the beginning.
+func mergeSystemMessages(messages []Message) []Message {
+	if len(messages) == 0 {
+		return messages
+	}
+
+	// Collect system messages from the beginning
+	var systemContents []string
+	var i int
+	for i = 0; i < len(messages); i++ {
+		if messages[i].Role == "system" {
+			systemContents = append(systemContents, messages[i].Content)
+		} else {
+			break
+		}
+	}
+
+	// If we found 0 or 1 system messages at the beginning, no change needed
+	if len(systemContents) <= 1 {
+		return messages
+	}
+
+	// Merge system messages with double newline separator
+	mergedContent := strings.Join(systemContents, "\n\n")
+
+	// Create new messages slice with merged system message followed by the rest
+	result := make([]Message, 0, len(messages)-len(systemContents)+1)
+	result = append(result, Message{
+		Role:    "system",
+		Content: mergedContent,
+	})
+
+	// Append the non-system messages
+	result = append(result, messages[i:]...)
+
+	return result
+}
+
 // makeAutomaticRequest makes an automatic LLM request after a state transition.
 // This method runs asynchronously (called with go).
 func (a *Agent) makeAutomaticRequest(sessionID string, taskContext *storage.TaskContext) {
@@ -683,6 +726,9 @@ func (a *Agent) makeAutomaticRequest(sessionID string, taskContext *storage.Task
 
 	// Add the system message to history
 	history = append([]Message{systemMsg}, history...)
+
+	// Merge consecutive system messages to avoid GigaChat API error
+	history = mergeSystemMessages(history)
 
 	// Send to LLM
 	result, err := a.client.SendMessage(history)
