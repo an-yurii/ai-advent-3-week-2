@@ -291,6 +291,12 @@ async function copyDialogue() {
         showToast('Dialogue copied to new session!', 'info');
         // Refresh profile display
         loadProfileInfo();
+        // Refresh state display for the copied session
+        fetchCurrentState(sessionId).then(stateInfo => {
+            updateStateDisplay(stateInfo);
+        }).catch(err => {
+            console.error('Failed to load state after copy:', err);
+        });
     } catch (error) {
         console.error('Error copying dialogue:', error);
         addMessage('system', `Error copying dialogue: ${error.message}`);
@@ -317,6 +323,8 @@ function newSession() {
         addMessage('system', 'New session started. Previous history is cleared on the server.');
         // Reset token counters
         updateTokenCounts(0, 0, 0);
+        // Hide state display (no FSM context for new session)
+        updateStateDisplay(null);
         // Update URL without reload, include current strategy and profile
         const url = new URL(window.location);
         url.searchParams.set('session', sessionId);
@@ -342,22 +350,33 @@ function goToLanding() {
 
 // State Management Functions
 function updateStateDisplay(stateInfo) {
+    console.log('updateStateDisplay called with:', stateInfo);
     const stateDisplay = document.getElementById('state-display');
     const progressFill = document.getElementById('progress-fill');
     const progressText = document.getElementById('progress-text');
     const stateDescription = document.getElementById('state-description');
     const stateStatus = document.getElementById('state-status');
     
+    console.log('stateDisplay element:', stateDisplay);
+    console.log('current display style:', stateDisplay.style.display);
+    
     if (!stateInfo || !stateInfo.initialized) {
         // No FSM context - hide state display
+        console.log('No state info or not initialized, hiding display');
         stateDisplay.style.display = 'none';
         return;
     }
     
+    console.log('State is initialized, showing display');
     // Show state display
     stateDisplay.style.display = 'block';
+    console.log('display set to block');
+    // Log bounding rect for debugging
+    const rect = stateDisplay.getBoundingClientRect();
+    console.log('state display rect:', rect.top, rect.left, rect.width, rect.height);
     
     if (stateInfo.done) {
+        console.log('State done');
         // Task completed
         progressFill.style.width = '100%';
         progressText.textContent = 'Завершено';
@@ -369,6 +388,7 @@ function updateStateDisplay(stateInfo) {
     }
     
     if (stateInfo.error) {
+        console.log('State error');
         // Error in configuration
         progressFill.style.width = '0%';
         progressText.textContent = 'Ошибка';
@@ -379,8 +399,10 @@ function updateStateDisplay(stateInfo) {
         return;
     }
     
+    console.log('Normal state display');
     // Normal state display
     const progressPercent = (stateInfo.step_number / stateInfo.steps_count) * 100;
+    console.log('progressPercent:', progressPercent);
     progressFill.style.width = `${progressPercent}%`;
     progressText.textContent = `Шаг ${stateInfo.step_number} из ${stateInfo.steps_count}`;
     stateDescription.textContent = stateInfo.description || '';
@@ -389,12 +411,16 @@ function updateStateDisplay(stateInfo) {
 
 // Fetch current state from API
 async function fetchCurrentState(sessionId) {
+    console.log('fetchCurrentState called for session:', sessionId);
     try {
         const response = await fetch(`/api/session/state/${sessionId}`);
+        console.log('Response status:', response.status);
         if (!response.ok) {
             throw new Error(`HTTP ${response.status}`);
         }
-        return await response.json();
+        const data = await response.json();
+        console.log('Fetched state data:', data);
+        return data;
     } catch (error) {
         console.error('Failed to fetch state:', error);
         return null;
@@ -462,7 +488,12 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Initialize state display
     if (sessionId) {
-        fetchCurrentState(sessionId);
+        fetchCurrentState(sessionId).then(stateInfo => {
+            console.log('Initial state loaded:', stateInfo);
+            updateStateDisplay(stateInfo);
+        }).catch(err => {
+            console.error('Failed to load initial state:', err);
+        });
     }
     
     // Setup state refresh button
