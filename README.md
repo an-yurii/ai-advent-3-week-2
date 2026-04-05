@@ -11,6 +11,10 @@ A client‑server application with an AI agent that interacts with GigaChat API.
 - **Persistent storage** – PostgreSQL database for conversation history, surviving server restarts.
 - **Session‑based history** – Full history per user with ability to load previous dialogs.
 - **Multiple context management strategies** – Choose between `summary` (compress older messages), `sliding_window` (keep only recent messages), and `sticky_facts` (extract and reuse key facts across turns).
+- **Finite State Machine (FSM) with LLM validation** – Automated task progression with validation of LLM responses against checklist criteria.
+- **Automatic state switching** – Seamless transition between task states based on validation results.
+- **Validation feedback integration** – LLM receives task context, instructions, and validation feedback for improved responses.
+- **Maximum attempt limiting** – Configurable limits to prevent infinite loops in automatic request generation.
 - **Structured logging** – Detailed logs with millisecond precision.
 - **Dockerized** – Easy deployment with Docker Compose (includes PostgreSQL).
 - **Database migration** – Automatic schema creation on first launch.
@@ -29,6 +33,80 @@ graph TB
     WebServer -->|Serve Static| Static[Static Files]
     WebServer -->|JSON Response| User
 ```
+
+## LLM Response Validation and State Switching
+
+The system now includes advanced Finite State Machine (FSM) capabilities with automated LLM response validation and state switching.
+
+### Key Features
+
+1. **Automated Validation Pipeline**:
+   - LLM responses are validated against state-specific checklists
+   - Three validation outcomes: `SUCCESS`, `FAILED`, `NEED_USER_ANSWER`
+   - Special detection for "Нужна дополнительная информация" (needs user input)
+
+2. **LLM-based Validation**:
+   - Separate validation request to LLM with specialized prompt
+   - Returns structured JSON with completion status, missing items, and feedback
+   - Configurable validation prompt in `prompts/validation_prompt.md`
+
+3. **State Management**:
+   - Automatic state transitions based on validation results
+   - Configurable `max_attempts` per state (global and per-state overrides)
+   - Feedback storage in task context for iterative improvement
+
+4. **Enhanced LLM Context**:
+   - System prompts include: user's original task, current state instructions, validation feedback
+   - Automatic inclusion of missing items from previous validation attempts
+
+5. **Automatic Request Generation**:
+   - After successful state transitions, system automatically generates next LLM request
+   - Prevents infinite loops with configurable maximum attempt limits
+   - Asynchronous processing to avoid blocking user interactions
+
+### Configuration
+
+FSM configuration is defined in `config/fsm.yaml`:
+
+```yaml
+fsm_config:
+  initial_state: gathering_requirements
+  max_attempts: 3  # Global maximum attempts
+  validation_prompt_file: "prompts/validation_prompt.md"
+  
+  states:
+    gathering_requirements:
+      step_number: 1
+      description: "Сбор вводных данных от пользователя"
+      instructions: "Запроси у пользователя цель проекта, бюджет и дедлайн."
+      max_attempts: 5  # Optional per-state override
+      validation_schema:
+        check_list:
+          - "Цель сформулирована конкретно"
+          - "Бюджет указан в числах"
+          - "Дедлайн содержит дату или срок"
+      on_success: market_analysis
+      on_fail: gathering_requirements
+```
+
+### Validation Flow
+
+1. User sends message → LLM generates response
+2. Response saved to database and displayed to user
+3. Validation process:
+   - Check for "Нужна дополнительная информация" → `NEED_USER_ANSWER`
+   - Send validation request to LLM with checklist and response
+   - Parse validation result (`SUCCESS`/`FAILED`)
+4. State transition:
+   - `SUCCESS` → move to `on_success` state
+   - `FAILED` → stay in current state (retry with feedback)
+   - `NEED_USER_ANSWER` → wait for user input
+5. If state changed and not in final state → automatic LLM request
+
+### Environment Variables
+
+- `FSM_CONFIG_PATH`: Path to FSM configuration file (default: `config/fsm.yaml`)
+- `VALIDATION_PROMPT_FILE`: Path to validation prompt file (default: `prompts/validation_prompt.md`)
 
 ## Quick Start
 

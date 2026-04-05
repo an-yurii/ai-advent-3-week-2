@@ -29,9 +29,10 @@ type StateInfo struct {
 
 // FSM manages the finite state machine for task processing.
 type FSM struct {
-	config  *FSMConfig
-	storage storage.Storage
-	logger  *logging.Logger
+	config    *FSMConfig
+	storage   storage.Storage
+	logger    *logging.Logger
+	validator Validator
 }
 
 // NewFSM creates a new FSM instance with the given configuration path and storage.
@@ -41,10 +42,29 @@ func NewFSM(configPath string, storage storage.Storage) (*FSM, error) {
 		return nil, err
 	}
 
+	// Create validator (default to stub validator)
+	validator := NewStubValidator()
+
 	return &FSM{
-		config:  config,
-		storage: storage,
-		logger:  logging.Default(),
+		config:    config,
+		storage:   storage,
+		logger:    logging.Default(),
+		validator: validator,
+	}, nil
+}
+
+// NewFSMWithValidator creates a new FSM instance with a custom validator.
+func NewFSMWithValidator(configPath string, storage storage.Storage, validator Validator) (*FSM, error) {
+	config, err := LoadConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	return &FSM{
+		config:    config,
+		storage:   storage,
+		logger:    logging.Default(),
+		validator: validator,
 	}, nil
 }
 
@@ -111,18 +131,63 @@ func (f *FSM) ProcessResponse(sessionID, llmResponse string) (*storage.TaskConte
 		return nil, fmt.Errorf("state %s not found in config", context.State)
 	}
 
-	// Run validation (stub implementation)
-	success, validationErr := f.validate(stateConfig, llmResponse)
+	// Run validation using the validator
+	validationOutput, validationErr := f.validator.Validate(stateConfig, llmResponse, context)
 	if validationErr != nil {
 		return nil, fmt.Errorf("validation failed: %w", validationErr)
 	}
 
-	// Determine next state
+	// Store validation feedback in context metadata
+	if validationOutput.Feedback != "" {
+		context.Metadata["validation_feedback"] = validationOutput.Feedback
+	}
+	if len(validationOutput.MissingItems) > 0 {
+		context.Metadata["missing_items"] = validationOutput.MissingItems
+	}
+	context.Metadata["last_validation_result"] = string(validationOutput.Result)
+
+	// Track validation attempts for this state
+	attemptsKey := fmt.Sprintf("validation_attempts_%s", context.State)
+	currentAttempts := 1
+	if attempts, ok := context.Metadata[attemptsKey].(int); ok {
+		currentAttempts = attempts + 1
+	}
+	context.Metadata[attemptsKey] = currentAttempts
+
+	// Check if we've exceeded max attempts for this state
+	maxAttempts := f.config.GetMaxAttempts(context.State)
+	if currentAttempts > maxAttempts {
+		f.logger.Warn("Max validation attempts exceeded",
+			"session", sessionID,
+			"state", context.State,
+			"attempts", currentAttempts,
+			"max_attempts", maxAttempts)
+		// Mark as error state
+		context.Metadata["error"] = true
+		context.Metadata["error_reason"] = fmt.Sprintf("Exceeded maximum validation attempts (%d)", maxAttempts)
+	}
+
+	// Handle NEED_USER_ANSWER result - no state transition
+	if validationOutput.Result == ResultNeedUserAnswer {
+		f.logger.Info("Validation result: NEED_USER_ANSWER",
+			"session", sessionID,
+			"state", context.State)
+		// Save context with feedback (if any)
+		if err := f.storage.UpdateTaskContext(sessionID, context); err != nil {
+			return nil, fmt.Errorf("failed to update task context: %w", err)
+		}
+		return context, nil
+	}
+
+	// Determine next state based on validation result
 	var nextState string
-	if success {
+	var success bool
+	if validationOutput.Result == ResultSuccess {
 		nextState = stateConfig.OnSuccess
-	} else {
+		success = true
+	} else { // ResultFailed
 		nextState = stateConfig.OnFail
+		success = false
 	}
 
 	// Check if task is completed
@@ -134,8 +199,15 @@ func (f *FSM) ProcessResponse(sessionID, llmResponse string) (*storage.TaskConte
 
 	// Update context
 	context.Done = done
-	if !done && nextState != context.State {
+
+	// Only transition state if not in NEED_USER_ANSWER and not in error state
+	shouldTransition := !done && nextState != context.State && validationOutput.Result != ResultNeedUserAnswer
+	if shouldTransition {
 		context.State = nextState
+
+		// Reset attempts for the new state
+		newAttemptsKey := fmt.Sprintf("validation_attempts_%s", nextState)
+		context.Metadata[newAttemptsKey] = 0
 
 		// Update metadata
 		if meta, ok := context.Metadata["transition_history"].([]TransitionHistory); ok {
@@ -172,7 +244,9 @@ func (f *FSM) ProcessResponse(sessionID, llmResponse string) (*storage.TaskConte
 		"from", context.State,
 		"to", nextState,
 		"success", success,
-		"done", done)
+		"result", validationOutput.Result,
+		"done", done,
+		"attempts", currentAttempts)
 
 	return context, nil
 }
@@ -244,6 +318,16 @@ func (f *FSM) GetCurrentState(sessionID string) (string, error) {
 	}
 
 	return context.State, nil
+}
+
+// GetStateConfig returns the configuration for a specific state.
+func (f *FSM) GetStateConfig(state string) (*StateConfig, bool) {
+	return f.config.GetState(state)
+}
+
+// GetMaxAttemptsForState returns the maximum attempts for a state.
+func (f *FSM) GetMaxAttemptsForState(state string) int {
+	return f.config.GetMaxAttempts(state)
 }
 
 // IsDone checks if the task is completed for a session.

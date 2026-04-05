@@ -2,6 +2,7 @@ package agent
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
@@ -355,6 +356,15 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		}
 	}
 
+	// Add FSM context if available
+	fsmContextMsg, err := a.buildFSMContext(sessionID)
+	if err != nil {
+		a.logger.LogError(err, "failed to build FSM context")
+	} else if fsmContextMsg != nil {
+		// Prepend FSM context message to history
+		history = append([]Message{*fsmContextMsg}, history...)
+	}
+
 	// Send the (possibly compressed) history to GigaChat
 	result, err := a.client.SendMessage(history)
 	if err != nil {
@@ -375,9 +385,21 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 	}
 
 	// Process FSM transition if FSM is available
+	var taskContext *storage.TaskContext
 	if a.fsm != nil {
-		if _, err := a.fsm.ProcessResponse(sessionID, result.Content); err != nil {
+		ctx, err := a.fsm.ProcessResponse(sessionID, result.Content)
+		if err != nil {
 			a.logger.LogError(err, "FSM processing failed")
+		} else {
+			taskContext = ctx
+		}
+	}
+
+	// Trigger automatic LLM request if FSM transition occurred and task is not done
+	if taskContext != nil && !taskContext.Done {
+		// Check if we should make an automatic request
+		if a.shouldMakeAutomaticRequest(sessionID, taskContext) {
+			go a.makeAutomaticRequest(sessionID, taskContext)
 		}
 	}
 
@@ -490,6 +512,207 @@ func (a *Agent) GetFSMStateInfo(sessionID string) (*fsm.StateInfo, error) {
 		return nil, errors.New("FSM not configured")
 	}
 	return a.fsm.GetStateInfo(sessionID)
+}
+
+// buildFSMContext builds a system message with FSM context (task, instructions, feedback)
+// to be included in LLM requests.
+func (a *Agent) buildFSMContext(sessionID string) (*Message, error) {
+	if a.fsm == nil {
+		return nil, nil // No FSM, no context to add
+	}
+
+	// Get task context from storage
+	taskContext, err := a.storage.GetTaskContext(sessionID)
+	if err != nil {
+		a.logger.LogError(err, "failed to get task context for FSM context building")
+		return nil, nil
+	}
+
+	if taskContext == nil || taskContext.Done {
+		return nil, nil // No active task or task is done
+	}
+
+	// Get current state config
+	stateConfig, exists := a.fsm.GetStateConfig(taskContext.State)
+	if !exists {
+		a.logger.LogError(nil, "state not found in config", "state", taskContext.State)
+		return nil, nil
+	}
+
+	// Build context message
+	var contextBuilder strings.Builder
+	contextBuilder.WriteString("## Текущая задача\n")
+	contextBuilder.WriteString(taskContext.Task + "\n\n")
+
+	contextBuilder.WriteString("## Текущий шаг\n")
+	contextBuilder.WriteString(fmt.Sprintf("Шаг %d: %s\n", stateConfig.StepNumber, stateConfig.Description))
+	contextBuilder.WriteString("\n")
+
+	contextBuilder.WriteString("## Инструкции для текущего шага\n")
+	contextBuilder.WriteString(stateConfig.Instructions + "\n\n")
+
+	// Add validation feedback if available
+	if feedback, ok := taskContext.Metadata["validation_feedback"].(string); ok && feedback != "" {
+		contextBuilder.WriteString("## Обратная связь от валидатора\n")
+		contextBuilder.WriteString(feedback + "\n\n")
+	}
+
+	// Add missing items if available
+	if missingItems, ok := taskContext.Metadata["missing_items"].([]interface{}); ok && len(missingItems) > 0 {
+		contextBuilder.WriteString("## Недостающие элементы (требуют доработки)\n")
+		for i, item := range missingItems {
+			if str, ok := item.(string); ok {
+				contextBuilder.WriteString(fmt.Sprintf("%d. %s\n", i+1, str))
+			}
+		}
+		contextBuilder.WriteString("\n")
+	}
+
+	return &Message{
+		Role:    "system",
+		Content: contextBuilder.String(),
+	}, nil
+}
+
+// shouldMakeAutomaticRequest determines if an automatic LLM request should be made
+// after a state transition.
+func (a *Agent) shouldMakeAutomaticRequest(sessionID string, taskContext *storage.TaskContext) bool {
+	if taskContext == nil || taskContext.Done {
+		return false
+	}
+
+	// Check if task is in error state
+	if errorFlag, ok := taskContext.Metadata["error"].(bool); ok && errorFlag {
+		return false
+	}
+
+	// Check max attempts for the current state
+	attemptsKey := fmt.Sprintf("validation_attempts_%s", taskContext.State)
+	if attempts, ok := taskContext.Metadata[attemptsKey].(int); ok {
+		maxAttempts := 3 // Default
+		if a.fsm != nil {
+			maxAttempts = a.fsm.GetMaxAttemptsForState(taskContext.State)
+		}
+		if attempts >= maxAttempts {
+			a.logger.Debug("Max attempts reached, skipping automatic request",
+				"session", sessionID,
+				"state", taskContext.State,
+				"attempts", attempts,
+				"max_attempts", maxAttempts)
+			return false
+		}
+	}
+
+	// Check if last validation result was NEED_USER_ANSWER
+	if lastResult, ok := taskContext.Metadata["last_validation_result"].(string); ok {
+		if lastResult == string(fsm.ResultNeedUserAnswer) {
+			return false
+		}
+	}
+
+	// Check if we've made too many automatic requests already
+	autoRequestKey := "automatic_request_count"
+	autoRequestCount := 0
+	if count, ok := taskContext.Metadata[autoRequestKey].(int); ok {
+		autoRequestCount = count
+	}
+
+	// Limit total automatic requests to prevent infinite loops
+	maxAutoRequests := 10
+	if autoRequestCount >= maxAutoRequests {
+		a.logger.Debug("Max automatic requests reached",
+			"session", sessionID,
+			"count", autoRequestCount)
+		return false
+	}
+
+	return true
+}
+
+// makeAutomaticRequest makes an automatic LLM request after a state transition.
+// This method runs asynchronously (called with go).
+func (a *Agent) makeAutomaticRequest(sessionID string, taskContext *storage.TaskContext) {
+	// Increment automatic request counter
+	autoRequestKey := "automatic_request_count"
+	autoRequestCount := 0
+	if count, ok := taskContext.Metadata[autoRequestKey].(int); ok {
+		autoRequestCount = count
+	}
+	taskContext.Metadata[autoRequestKey] = autoRequestCount + 1
+
+	// Save updated context with incremented counter
+	if err := a.storage.UpdateTaskContext(sessionID, taskContext); err != nil {
+		a.logger.LogError(err, "failed to update task context with automatic request count")
+	}
+
+	a.logger.Info("Making automatic LLM request after state transition",
+		"session", sessionID,
+		"state", taskContext.State,
+		"auto_request_count", autoRequestCount+1)
+
+	// Get current state config
+	stateConfig, exists := a.fsm.GetStateConfig(taskContext.State)
+	if !exists {
+		a.logger.LogError(nil, "state config not found for automatic request", "state", taskContext.State)
+		return
+	}
+
+	// Create a system message with instructions for the next step
+	systemMsg := Message{
+		Role:    "system",
+		Content: fmt.Sprintf("Переход к следующему шагу выполнен. Выполни инструкции для текущего шага:\n\n%s", stateConfig.Instructions),
+	}
+
+	// Get current session history
+	session, err := a.storage.GetSession(sessionID)
+	if err != nil {
+		a.logger.LogError(err, "failed to get session for automatic request")
+		return
+	}
+
+	if session == nil {
+		a.logger.LogError(nil, "session not found for automatic request", "session_id", sessionID)
+		return
+	}
+
+	// Convert history to agent messages
+	history := make([]Message, len(session.History))
+	for i, m := range session.History {
+		history[i] = toAgentMessage(m)
+	}
+
+	// Add the system message to history
+	history = append([]Message{systemMsg}, history...)
+
+	// Send to LLM
+	result, err := a.client.SendMessage(history)
+	if err != nil {
+		a.logger.LogError(err, "automatic LLM request failed")
+		return
+	}
+
+	// Add assistant response to storage
+	assistantMsg := Message{
+		Role:             "assistant",
+		Content:          result.Content,
+		PromptTokens:     result.Usage.PromptTokens,
+		CompletionTokens: result.Usage.CompletionTokens,
+		TotalTokens:      result.Usage.TotalTokens,
+	}
+	if err := a.storage.AddMessage(sessionID, toStorageMessage(assistantMsg)); err != nil {
+		a.logger.LogError(err, "failed to store automatic assistant message")
+	}
+
+	// Process FSM transition for the automatic response
+	if a.fsm != nil {
+		if _, err := a.fsm.ProcessResponse(sessionID, result.Content); err != nil {
+			a.logger.LogError(err, "FSM processing failed for automatic response")
+		}
+	}
+
+	a.logger.Info("Automatic LLM request completed",
+		"session", sessionID,
+		"state", taskContext.State)
 }
 
 // ErrSessionNotFound is returned when a session does not exist.

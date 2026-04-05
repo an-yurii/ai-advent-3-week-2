@@ -21,12 +21,15 @@ type StateConfig struct {
 	ValidationSchema ValidationSchema `yaml:"validation_schema"`
 	OnSuccess        string           `yaml:"on_success"`
 	OnFail           string           `yaml:"on_fail"`
+	MaxAttempts      int              `yaml:"max_attempts,omitempty"` // Optional per-state override
 }
 
 // FSMConfig defines the complete FSM configuration.
 type FSMConfig struct {
-	InitialState string                 `yaml:"initial_state"`
-	States       map[string]StateConfig `yaml:"states"`
+	InitialState         string                 `yaml:"initial_state"`
+	States               map[string]StateConfig `yaml:"states"`
+	MaxAttempts          int                    `yaml:"max_attempts,omitempty"`           // Global maximum attempts, default 3
+	ValidationPromptFile string                 `yaml:"validation_prompt_file,omitempty"` // Path to validation prompt file
 }
 
 // LoadConfig loads and validates the FSM configuration from a YAML file.
@@ -75,10 +78,20 @@ func validateConfig(config *FSMConfig) error {
 		return fmt.Errorf("initial_state %s not defined in states", config.InitialState)
 	}
 
+	// Set defaults
+	if config.MaxAttempts == 0 {
+		config.MaxAttempts = 3 // Default global maximum attempts
+	}
+
 	// Validate each state
 	for stateName, state := range config.States {
 		if state.StepNumber <= 0 {
 			return fmt.Errorf("state %s: step_number must be positive", stateName)
+		}
+
+		// Validate max attempts if specified
+		if state.MaxAttempts < 0 {
+			return fmt.Errorf("state %s: max_attempts must be non-negative", stateName)
 		}
 
 		// Validate transitions
@@ -113,6 +126,25 @@ func (c *FSMConfig) GetStepNumber(state string) int {
 		return cfg.StepNumber
 	}
 	return 0
+}
+
+// GetMaxAttempts returns the maximum attempts for a state.
+// If the state has a specific max_attempts defined, use it.
+// Otherwise, use the global MaxAttempts value.
+func (c *FSMConfig) GetMaxAttempts(state string) int {
+	if cfg, exists := c.States[state]; exists && cfg.MaxAttempts > 0 {
+		return cfg.MaxAttempts
+	}
+	if c.MaxAttempts > 0 {
+		return c.MaxAttempts
+	}
+	return 3 // Default fallback
+}
+
+// GetValidationPromptFile returns the path to the validation prompt file.
+// Returns empty string if not configured.
+func (c *FSMConfig) GetValidationPromptFile() string {
+	return c.ValidationPromptFile
 }
 
 // GetStatesCount returns the total number of states.
