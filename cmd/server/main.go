@@ -214,11 +214,17 @@ func handleSessionState(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		// Check if error is because FSM is not configured
 		if err.Error() == "FSM not configured" {
-			// Return empty state info
+			// Return error state info
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]interface{}{
-				"initialized": false,
+				"initialized": true,
+				"error":       true,
 				"message":     "FSM not configured for this session",
+				"step_number": 0,
+				"steps_count": 0,
+				"description": "",
+				"state":       "",
+				"done":        false,
 			})
 			return
 		}

@@ -36,17 +36,33 @@ func LoadConfig(path string) (*FSMConfig, error) {
 		return nil, fmt.Errorf("failed to read config file: %w", err)
 	}
 
-	var config FSMConfig
-	if err := yaml.Unmarshal(data, &config); err != nil {
+	// Try to unmarshal with wrapper first (for backward compatibility)
+	var wrapper struct {
+		FSMConfig *FSMConfig `yaml:"fsm_config"`
+	}
+
+	if err := yaml.Unmarshal(data, &wrapper); err != nil {
 		return nil, fmt.Errorf("failed to parse YAML config: %w", err)
 	}
 
+	// If wrapper contains config, use it
+	var config *FSMConfig
+	if wrapper.FSMConfig != nil {
+		config = wrapper.FSMConfig
+	} else {
+		// Fallback: try direct unmarshal (for old format)
+		config = &FSMConfig{}
+		if err := yaml.Unmarshal(data, config); err != nil {
+			return nil, fmt.Errorf("failed to parse YAML config (direct): %w", err)
+		}
+	}
+
 	// Validate config
-	if err := validateConfig(&config); err != nil {
+	if err := validateConfig(config); err != nil {
 		return nil, fmt.Errorf("invalid config: %w", err)
 	}
 
-	return &config, nil
+	return config, nil
 }
 
 // validateConfig performs validation on the loaded configuration.

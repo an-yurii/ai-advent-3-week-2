@@ -14,12 +14,14 @@ services:
       - HISTORY_SUMMARY_PROMPT_FILE=${HISTORY_SUMMARY_PROMPT_FILE:-}
       - STICKY_FACTS_WINDOW_SIZE=${STICKY_FACTS_WINDOW_SIZE:-10}
       - STICKY_FACTS_EXTRACTION_PROMPT_FILE=${STICKY_FACTS_EXTRACTION_PROMPT_FILE:-}
+      - FSM_CONFIG_PATH=${FSM_CONFIG_PATH:-}
     depends_on:
       postgres:
         condition: service_healthy
     volumes:
       - ./static:/app/static
       - ./prompts:/app/prompts
+      - ./config:/app/config
     networks:
       - app_network
 
