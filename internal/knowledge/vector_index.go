@@ -3,6 +3,7 @@ package knowledge
 import (
 	"database/sql"
 	"encoding/binary"
+	"encoding/json"
 	"fmt"
 	"math"
 	"sort"
@@ -54,15 +55,32 @@ func NewVectorIndex(dbPath string) (VectorIndex, error) {
 			return nil, fmt.Errorf("failed to scan embedding row: %w", err)
 		}
 
-		// Parse vector data (assuming it's stored as little‑endian float32s)
-		if len(vectorData)%4 != 0 {
-			return nil, fmt.Errorf("vector data length %d is not a multiple of 4 for chunk %s", len(vectorData), chunkID)
-		}
+		// Parse vector data - could be JSON array string or binary float32 data
+		var vector []float32
 
-		vector := make([]float32, len(vectorData)/4)
-		for i := 0; i < len(vector); i++ {
-			bits := binary.LittleEndian.Uint32(vectorData[i*4 : (i+1)*4])
-			vector[i] = math.Float32frombits(bits)
+		// Check if the data looks like a JSON array (starts with '[' and ends with ']')
+		if len(vectorData) >= 2 && vectorData[0] == '[' && vectorData[len(vectorData)-1] == ']' {
+			// Parse as JSON array
+			var float64Vector []float64
+			if err := json.Unmarshal(vectorData, &float64Vector); err != nil {
+				return nil, fmt.Errorf("failed to parse JSON vector data for chunk %s: %w", chunkID, err)
+			}
+			// Convert float64 to float32
+			vector = make([]float32, len(float64Vector))
+			for i, v := range float64Vector {
+				vector[i] = float32(v)
+			}
+		} else {
+			// Parse as binary float32 data
+			if len(vectorData)%4 != 0 {
+				return nil, fmt.Errorf("vector data length %d is not a multiple of 4 for chunk %s", len(vectorData), chunkID)
+			}
+
+			vector = make([]float32, len(vectorData)/4)
+			for i := 0; i < len(vector); i++ {
+				bits := binary.LittleEndian.Uint32(vectorData[i*4 : (i+1)*4])
+				vector[i] = math.Float32frombits(bits)
+			}
 		}
 
 		if dimension == 0 {
