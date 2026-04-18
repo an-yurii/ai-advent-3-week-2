@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"ai-agent-gigachat/internal/agent/fsm"
+	"ai-agent-gigachat/internal/knowledge"
 	"ai-agent-gigachat/internal/logging"
 	"ai-agent-gigachat/internal/storage"
 	"ai-agent-gigachat/internal/storage/memory"
@@ -70,11 +71,13 @@ const defaultStickyFactsPrompt = "Extract key facts from the conversation as pla
 
 // Agent is the main AI agent that manages sessions and communicates with GigaChat.
 type Agent struct {
-	client        *GigaChatClient
-	storage       storage.Storage
-	logger        *logging.Logger
-	historyConfig HistoryConfig
-	fsm           *fsm.FSM // optional FSM for task state management
+	client          *GigaChatClient
+	storage         storage.Storage
+	logger          *logging.Logger
+	historyConfig   HistoryConfig
+	fsm             *fsm.FSM                   // optional FSM for task state management
+	knowledge       knowledge.KnowledgeService // optional knowledge base service
+	knowledgeConfig knowledge.Config           // knowledge base configuration
 }
 
 // gigachatLLMClientAdapter adapts GigaChatClient to fsm.LLMClient interface
@@ -164,12 +167,32 @@ func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
 		}
 	}
 
+	// Load knowledge base configuration
+	knowledgeConfig := knowledge.LoadConfig()
+	var knowledgeService knowledge.KnowledgeService
+
+	if knowledgeConfig.Enabled {
+		ks, err := knowledge.NewKnowledgeService(knowledgeConfig)
+		if err != nil {
+			logging.Default().Warn("Failed to initialize knowledge base service", "error", err)
+			// Continue without knowledge base
+		} else {
+			knowledgeService = ks
+			logging.Default().Info("Knowledge base service initialized",
+				"sqlite_path", knowledgeConfig.SQLitePath,
+				"faiss_path", knowledgeConfig.FAISSPath,
+				"k", knowledgeConfig.K)
+		}
+	}
+
 	return &Agent{
-		client:        NewGigaChatClient(apiKey),
-		storage:       store,
-		logger:        logging.Default(),
-		historyConfig: loadHistoryConfig(),
-		fsm:           fsmInstance,
+		client:          NewGigaChatClient(apiKey),
+		storage:         store,
+		logger:          logging.Default(),
+		historyConfig:   loadHistoryConfig(),
+		fsm:             fsmInstance,
+		knowledge:       knowledgeService,
+		knowledgeConfig: knowledgeConfig,
 	}
 }
 
@@ -389,6 +412,25 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		}
 	default:
 		a.logger.LogError(nil, "unknown strategy, using default (summary)", "strategy", strategy)
+	}
+
+	// Add knowledge base context if enabled
+	if a.knowledge != nil && a.knowledgeConfig.Enabled {
+		results, err := a.knowledge.Search(userMessage)
+		if err != nil {
+			a.logger.LogError(err, "knowledge base search failed")
+		} else if len(results) > 0 {
+			context := a.knowledge.FormatContext(userMessage, results)
+			if context != "" {
+				knowledgeMsg := Message{
+					Role:    "system",
+					Content: context,
+				}
+				// Prepend knowledge message to history
+				history = append([]Message{knowledgeMsg}, history...)
+				a.logger.Info("Added knowledge base context", "chunks", len(results))
+			}
+		}
 	}
 
 	// Add profile context if session has a profile

@@ -15,13 +15,25 @@ services:
       - STICKY_FACTS_WINDOW_SIZE=${STICKY_FACTS_WINDOW_SIZE:-10}
       - STICKY_FACTS_EXTRACTION_PROMPT_FILE=${STICKY_FACTS_EXTRACTION_PROMPT_FILE:-}
       - FSM_CONFIG_PATH=${FSM_CONFIG_PATH:-}
+      # Knowledge base configuration
+      - KNOWLEDGE_BASE_ENABLED=${KNOWLEDGE_BASE_ENABLED:-false}
+      - KNOWLEDGE_BASE_SQLITE_PATH=${KNOWLEDGE_BASE_SQLITE_PATH:-/app/data/knowledge.db}
+      - KNOWLEDGE_BASE_FAISS_PATH=${KNOWLEDGE_BASE_FAISS_PATH:-/app/data/faiss.index}
+      - OLLAMA_HOST=http://ollama:11434
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+      - KNOWLEDGE_BASE_K=${KNOWLEDGE_BASE_K:-5}
+      - KNOWLEDGE_BASE_RELEVANCE_THRESHOLD=${KNOWLEDGE_BASE_RELEVANCE_THRESHOLD:-0.8}
+      - KNOWLEDGE_BASE_MAX_CHUNKS=${KNOWLEDGE_BASE_MAX_CHUNKS:-3}
     depends_on:
       postgres:
         condition: service_healthy
+      ollama:
+        condition: service_started
     volumes:
       - ./static:/app/static
       - ./prompts:/app/prompts
       - ./config:/app/config
+      - knowledge_data:/app/data
     networks:
       - app_network
 
@@ -57,9 +69,24 @@ services:
     networks:
       - app_network
 
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_data:/root/.ollama
+      - ./models:/models
+    environment:
+      - OLLAMA_KEEP_ALIVE=24h
+      - OLLAMA_HOST=0.0.0.0
+    networks:
+      - app_network
+
 volumes:
   postgres_data:
   pgadmin_data:
+  knowledge_data:
+  ollama_data:
 
 networks:
   app_network:

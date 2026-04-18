@@ -15,8 +15,9 @@ A client‑server application with an AI agent that interacts with GigaChat API.
 - **Automatic state switching** – Seamless transition between task states based on validation results.
 - **Validation feedback integration** – LLM receives task context, instructions, and validation feedback for improved responses.
 - **Maximum attempt limiting** – Configurable limits to prevent infinite loops in automatic request generation.
+- **Knowledge Base Search** – Vector search over local documents using Ollama embeddings and cosine similarity.
 - **Structured logging** – Detailed logs with millisecond precision.
-- **Dockerized** – Easy deployment with Docker Compose (includes PostgreSQL).
+- **Dockerized** – Easy deployment with Docker Compose (includes PostgreSQL and Ollama).
 - **Database migration** – Automatic schema creation on first launch.
 - **Unit & integration tests** – Test coverage for key components.
 
@@ -107,6 +108,119 @@ fsm_config:
 
 - `FSM_CONFIG_PATH`: Path to FSM configuration file (default: `config/fsm.yaml`)
 - `VALIDATION_PROMPT_FILE`: Path to validation prompt file (default: `prompts/validation_prompt.md`)
+
+## Knowledge Base Search
+
+The system now includes a knowledge base search feature that augments user questions with relevant context from a local document database.
+
+### Overview
+
+When a user sends a message, the system:
+1. Generates an embedding vector for the query using Ollama (`nomic-embed-text` model)
+2. Searches for similar chunks in the vector index (cosine similarity)
+3. Retrieves the most relevant text chunks from SQLite database
+4. Formats the context according to a predefined template
+5. Prepends the context to the conversation as a system message
+
+### Architecture
+
+```mermaid
+graph TB
+    User[User Question] --> Agent[AI Agent]
+    Agent -->|Query| KnowledgeService[Knowledge Base Service]
+    KnowledgeService -->|Get Embedding| Ollama[Ollama nomic-embed-text]
+    KnowledgeService -->|Search Vectors| VectorIndex[In‑Memory Vector Index]
+    KnowledgeService -->|Retrieve Chunks| SQLite[SQLite Database]
+    VectorIndex -->|Chunk IDs| KnowledgeService
+    SQLite -->|Chunk Text & Metadata| KnowledgeService
+    KnowledgeService -->|Formatted Context| Agent
+    Agent -->|Augmented Prompt| GigaChat[GigaChat API]
+```
+
+### Configuration
+
+Enable the knowledge base by setting `KNOWLEDGE_BASE_ENABLED=true` in your environment.
+
+| Environment Variable | Description | Default |
+|----------------------|-------------|---------|
+| `KNOWLEDGE_BASE_ENABLED` | Enable/disable knowledge base feature | `false` |
+| `KNOWLEDGE_BASE_SQLITE_PATH` | Path to SQLite database file | `/app/data/knowledge.db` |
+| `KNOWLEDGE_BASE_FAISS_PATH` | Path to FAISS index file (reserved for future use) | `/app/data/faiss.index` |
+| `OLLAMA_HOST` | Ollama service URL | `http://ollama:11434` (Docker) |
+| `OLLAMA_EMBEDDING_MODEL` | Embedding model name | `nomic-embed-text` |
+| `KNOWLEDGE_BASE_K` | Number of nearest neighbors to retrieve | `5` |
+| `KNOWLEDGE_BASE_RELEVANCE_THRESHOLD` | Maximum distance for relevant chunks (0.0‑1.0) | `0.8` |
+| `KNOWLEDGE_BASE_MAX_CHUNKS` | Maximum chunks to include in context | `3` |
+
+### Database Schema
+
+The knowledge base uses a SQLite database with the following schema:
+
+```sql
+CREATE TABLE documents (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    file_path TEXT NOT NULL UNIQUE,
+    file_hash TEXT NOT NULL,
+    file_size INTEGER NOT NULL,
+    modified_at TIMESTAMP NOT NULL,
+    chunk_count INTEGER DEFAULT 0,
+    indexed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+);
+
+CREATE TABLE chunks (
+    id TEXT PRIMARY KEY,
+    document_id INTEGER NOT NULL,
+    text TEXT NOT NULL,
+    section TEXT,
+    chunk_index INTEGER NOT NULL,
+    start_offset INTEGER NOT NULL,
+    end_offset INTEGER NOT NULL,
+    token_count INTEGER,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (document_id) REFERENCES documents(id) ON DELETE CASCADE
+);
+
+CREATE TABLE embeddings (
+    chunk_id TEXT PRIMARY KEY,
+    model TEXT NOT NULL,
+    dimension INTEGER NOT NULL,
+    vector_data BLOB NOT NULL,
+    generated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (chunk_id) REFERENCES chunks(id) ON DELETE CASCADE
+);
+```
+
+### Context Format
+
+The system formats retrieved chunks into the following structure:
+
+```
+Вопрос: [ТЕКСТ ВОПРОСА ПОЛЬЗОВАТЕЛЯ]
+
+Контекст:
+[ТЕКСТ ЧАНКА 1]
+file_path: <имя файла из метаданных чанков>
+section: <заголовок из метаданных чанков>
+---
+[ТЕКСТ ЧАНКА 2]
+file_path: <имя файла из метаданных чанков>
+section: <заголовок из метаданных чанков>
+---
+[ТЕКСТ ЧАНКА 3]
+file_path: <имя файла из метаданных чанков>
+section: <заголовок из метаданных чанков>
+```
+
+### Populating the Knowledge Base
+
+An example script is provided at `scripts/populate_knowledge.go` to demonstrate how to:
+1. Create the SQLite database with required schema
+2. Chunk documents and store them in the database
+3. Generate embeddings (dummy embeddings in the example)
+4. Prepare the knowledge base for search
+
+To use real embeddings, modify the script to call Ollama's embedding API.
 
 ## Quick Start
 
@@ -241,6 +355,14 @@ The agent uses a pluggable storage interface (`storage.Storage`). Two implementa
 | `SLIDING_WINDOW_SIZE` | Number of most recent messages to keep when using `sliding_window` strategy | No | 10 |
 | `STICKY_FACTS_WINDOW_SIZE` | Number of most recent messages to keep when using `sticky_facts` strategy | No | 10 |
 | `STICKY_FACTS_EXTRACTION_PROMPT_FILE` | Path to a file containing a custom prompt for fact extraction | No | (uses default prompt) |
+| `KNOWLEDGE_BASE_ENABLED` | Enable/disable knowledge base search feature | No | `false` |
+| `KNOWLEDGE_BASE_SQLITE_PATH` | Path to SQLite knowledge base database | No | `/app/data/knowledge.db` |
+| `KNOWLEDGE_BASE_FAISS_PATH` | Path to FAISS index file (reserved for future use) | No | `/app/data/faiss.index` |
+| `OLLAMA_HOST` | Ollama service URL for embeddings | No | `http://ollama:11434` (Docker) |
+| `OLLAMA_EMBEDDING_MODEL` | Embedding model name | No | `nomic-embed-text` |
+| `KNOWLEDGE_BASE_K` | Number of nearest neighbors to retrieve | No | `5` |
+| `KNOWLEDGE_BASE_RELEVANCE_THRESHOLD` | Maximum distance for relevant chunks (0.0‑1.0) | No | `0.8` |
+| `KNOWLEDGE_BASE_MAX_CHUNKS` | Maximum chunks to include in context | No | `3` |
 
 When running with Docker Compose, all database variables are set automatically; you only need to provide `DB_PASSWORD` if you wish to change it.
 
