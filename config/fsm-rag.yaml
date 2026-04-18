@@ -1,0 +1,37 @@
+# Finite State Machine Configuration for Travel Planning Assistant
+# This file defines states, transitions, and validation rules for the travel planning workflow
+
+fsm_config:
+  initial_state: defining_goals
+  max_attempts: 20
+  validation_prompt_file: /app/prompts/validation_prompt.md
+
+  states:
+    # State 1: Defining travel goals and purpose
+    defining_goals:
+      step_number: 1
+      description: Поиск по базе знаний
+      instructions: >
+        Ты — помощник, который отвечает на вопросы строго на основе предоставленного контекста. 
+        Если в контексте нет информации для ответа, скажи: „Не удалось найти ответ в доступных данных“.
+
+
+        Ответь на вопрос пользователя, опираясь исключительно на информацию из раздела „Контекст“. 
+        Не используй знания, полученные до 2023 года. Ответ должен быть кратким, 2–3 предложения.
+        
+        
+        Проанализируй контекст и составь структурированный ответ с подзаголовками: „Краткий ответ“, 
+        „Обоснование“, „Важные нюансы“. Если информации недостаточно, укажи это».
+        В ответ добавь информацию из контекста: ссылки на файлы и заголовки.
+      validation_schema:
+        check_list:
+          - 
+      on_success: exit
+      on_fail: defining_goals
+
+
+# Notes:
+# - The 'exit' state is special and triggers task completion (done = true)
+# - Validation is performed after each LLM response
+# - Step numbers are used for UI display (Шаг X из Y)
+# - Total steps count is calculated as number of states with step_number > 0

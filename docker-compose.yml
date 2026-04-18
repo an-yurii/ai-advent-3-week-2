@@ -33,7 +33,7 @@ services:
       - ./static:/app/static
       - ./prompts:/app/prompts
       - ./config:/app/config
-      - knowledge_data:/app/data
+      - ./knowledge_data:/app/data
     networks:
       - app_network
 
