@@ -425,13 +425,22 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 			if len(results) > 0 {
 				context := a.knowledge.FormatContext(userMessage, results)
 				if context != "" {
-					knowledgeMsg := Message{
-						Role:    "system",
-						Content: context,
+					// Find last user message (should be the current query)
+					lastUserIdx := -1
+					for i := len(history) - 1; i >= 0; i-- {
+						if history[i].Role == "user" {
+							lastUserIdx = i
+							break
+						}
 					}
-					// Prepend knowledge message to history
-					history = append([]Message{knowledgeMsg}, history...)
-					a.logger.Info("Added knowledge base context", "chunks", len(results))
+					if lastUserIdx >= 0 {
+						// Replace the content of the user message with the formatted context
+						history[lastUserIdx].Content = context
+					} else {
+						// No user message found (should not happen), fallback to adding a user message
+						history = append(history, Message{Role: "user", Content: context})
+					}
+					a.logger.Info("Added knowledge base context to user message", "chunks", len(results))
 				}
 			}
 		}
