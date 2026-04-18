@@ -76,9 +76,12 @@ services:
     volumes:
       - ollama_data:/root/.ollama
       - ./models:/models
+      - ./scripts/init-ollama.sh:/scripts/init-ollama.sh
     environment:
       - OLLAMA_KEEP_ALIVE=24h
       - OLLAMA_HOST=0.0.0.0
+      - OLLAMA_EMBEDDING_MODEL=${OLLAMA_EMBEDDING_MODEL:-nomic-embed-text}
+    entrypoint: ["sh", "/scripts/init-ollama.sh"]
     networks:
       - app_network
 

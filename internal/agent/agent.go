@@ -416,19 +416,23 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 
 	// Add knowledge base context if enabled
 	if a.knowledge != nil && a.knowledgeConfig.Enabled {
+		a.logger.Debug("Knowledge base enabled, searching", "query", userMessage)
 		results, err := a.knowledge.Search(userMessage)
 		if err != nil {
 			a.logger.LogError(err, "knowledge base search failed")
-		} else if len(results) > 0 {
-			context := a.knowledge.FormatContext(userMessage, results)
-			if context != "" {
-				knowledgeMsg := Message{
-					Role:    "system",
-					Content: context,
+		} else {
+			a.logger.Debug("Knowledge search completed", "results", len(results))
+			if len(results) > 0 {
+				context := a.knowledge.FormatContext(userMessage, results)
+				if context != "" {
+					knowledgeMsg := Message{
+						Role:    "system",
+						Content: context,
+					}
+					// Prepend knowledge message to history
+					history = append([]Message{knowledgeMsg}, history...)
+					a.logger.Info("Added knowledge base context", "chunks", len(results))
 				}
-				// Prepend knowledge message to history
-				history = append([]Message{knowledgeMsg}, history...)
-				a.logger.Info("Added knowledge base context", "chunks", len(results))
 			}
 		}
 	}
