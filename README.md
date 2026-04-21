@@ -109,6 +109,63 @@ fsm_config:
 - `FSM_CONFIG_PATH`: Path to FSM configuration file (default: `config/fsm.yaml`)
 - `VALIDATION_PROMPT_FILE`: Path to validation prompt file (default: `prompts/validation_prompt.md`)
 
+## Agent Selection
+
+The system now supports multiple LLM providers for chat completions. You can choose between GigaChat (cloud) and Ollama (local) agents.
+
+### Supported Agents
+
+1. **GigaChat** (default) - Sberbank's cloud LLM API
+   - Requires `GIGACHAT_API_KEY` environment variable
+   - Provides token usage statistics
+   - Suitable for production use
+
+2. **Ollama** - Local LLM running on your machine or network
+   - No API key required
+   - Uses the same Ollama instance as embeddings
+   - Supports any model available in Ollama (e.g., llama2, deepseek-coder, mistral)
+   - Ideal for development, testing, or privacy-sensitive deployments
+
+### Configuration
+
+Set the `AGENT_TYPE` environment variable to choose the agent:
+
+- `AGENT_TYPE=gigachat` (default) - Use GigaChat API
+- `AGENT_TYPE=ollama` - Use local Ollama instance
+
+Additional Ollama configuration:
+- `OLLAMA_HOST` - URL of Ollama service (default: `http://localhost:11434`)
+- `OLLAMA_CHAT_MODEL` - Model for chat completions (default: `llama2`)
+
+### Example Configuration
+
+**For GigaChat (default):**
+```bash
+export AGENT_TYPE=gigachat
+export GIGACHAT_API_KEY=your_api_key_here
+```
+
+**For Ollama:**
+```bash
+export AGENT_TYPE=ollama
+export OLLAMA_HOST=http://localhost:11434
+export OLLAMA_CHAT_MODEL=deepseek-coder:6.7b
+```
+
+### Docker Compose Changes
+
+The Ollama service has been removed from `docker-compose.yml`. If you want to use Ollama, you need to run it separately:
+
+```bash
+# Start Ollama locally
+ollama serve
+
+# Or using Docker
+docker run -d -v ollama:/root/.ollama -p 11434:11434 --name ollama ollama/ollama:latest
+```
+
+The application will connect to Ollama at the specified `OLLAMA_HOST`.
+
 ## Knowledge Base Search
 
 The system now includes a knowledge base search feature that augments user questions with relevant context from a local document database.
@@ -143,11 +200,13 @@ Enable the knowledge base by setting `KNOWLEDGE_BASE_ENABLED=true` in your envir
 
 | Environment Variable | Description | Default |
 |----------------------|-------------|---------|
+| `AGENT_TYPE` | LLM provider for chat completions (`gigachat` or `ollama`) | `gigachat` |
+| `OLLAMA_CHAT_MODEL` | Ollama model for chat completions (used when `AGENT_TYPE=ollama`) | `llama2` |
+| `OLLAMA_HOST` | Ollama service URL | `http://localhost:11434` |
+| `OLLAMA_EMBEDDING_MODEL` | Embedding model name | `nomic-embed-text` |
 | `KNOWLEDGE_BASE_ENABLED` | Enable/disable knowledge base feature | `false` |
 | `KNOWLEDGE_BASE_SQLITE_PATH` | Path to SQLite database file | `/app/data/knowledge.db` |
 | `KNOWLEDGE_BASE_FAISS_PATH` | Path to FAISS index file (reserved for future use) | `/app/data/faiss.index` |
-| `OLLAMA_HOST` | Ollama service URL | `http://ollama:11434` (Docker) |
-| `OLLAMA_EMBEDDING_MODEL` | Embedding model name | `nomic-embed-text` |
 | `KNOWLEDGE_BASE_K` | Number of nearest neighbors to retrieve | `5` |
 | `KNOWLEDGE_BASE_RELEVANCE_THRESHOLD` | Maximum distance for relevant chunks (0.0‑1.0) | `0.8` |
 | `KNOWLEDGE_BASE_MAX_CHUNKS` | Maximum chunks to include in context | `3` |

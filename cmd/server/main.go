@@ -61,11 +61,25 @@ func createStorage() storage.Storage {
 func main() {
 	// Initialize storage (PostgreSQL with fallback to memory)
 	store = createStorage()
-	// API key from environment (required for GigaChat)
-	apiKey := os.Getenv("GIGACHAT_API_KEY")
-	if apiKey == "" {
-		log.Fatal("GIGACHAT_API_KEY environment variable is required")
+
+	// Determine agent type
+	agentType := os.Getenv("AGENT_TYPE")
+	if agentType == "" {
+		agentType = "gigachat" // default
 	}
+
+	var apiKey string
+	if agentType == "gigachat" {
+		// API key is required for GigaChat
+		apiKey = os.Getenv("GIGACHAT_API_KEY")
+		if apiKey == "" {
+			log.Fatal("GIGACHAT_API_KEY environment variable is required when AGENT_TYPE=gigachat")
+		}
+	} else {
+		// For Ollama, API key is not required
+		apiKey = ""
+	}
+
 	aiAgent = agent.NewAgent(apiKey, store)
 
 	// Serve static files

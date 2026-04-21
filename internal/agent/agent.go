@@ -69,9 +69,9 @@ func loadHistoryConfig() HistoryConfig {
 const defaultSummaryPrompt = "Summarize the following conversation concisely, preserving key points and decisions:"
 const defaultStickyFactsPrompt = "Extract key facts from the conversation as plain text. Output each fact on a new line."
 
-// Agent is the main AI agent that manages sessions and communicates with GigaChat.
+// Agent is the main AI agent that manages sessions and communicates with LLM.
 type Agent struct {
-	client          *GigaChatClient
+	client          LLMClient
 	storage         storage.Storage
 	logger          *logging.Logger
 	historyConfig   HistoryConfig
@@ -80,13 +80,13 @@ type Agent struct {
 	knowledgeConfig knowledge.Config           // knowledge base configuration
 }
 
-// gigachatLLMClientAdapter adapts GigaChatClient to fsm.LLMClient interface
-type gigachatLLMClientAdapter struct {
-	client *GigaChatClient
+// llmClientAdapter adapts LLMClient to fsm.LLMClient interface
+type llmClientAdapter struct {
+	client LLMClient
 }
 
 // SendMessage implements fsm.LLMClient interface for validation.
-func (a *gigachatLLMClientAdapter) SendMessage(messages []fsm.Message) (*fsm.CompletionResult, error) {
+func (a *llmClientAdapter) SendMessage(messages []fsm.Message) (*fsm.CompletionResult, error) {
 	// Convert fsm.Message to agent.Message
 	agentMessages := make([]Message, len(messages))
 	for i, msg := range messages {
@@ -96,7 +96,7 @@ func (a *gigachatLLMClientAdapter) SendMessage(messages []fsm.Message) (*fsm.Com
 		}
 	}
 
-	// Call the actual GigaChat client
+	// Call the actual LLM client
 	result, err := a.client.SendMessage(agentMessages)
 	if err != nil {
 		return nil, err
@@ -126,6 +126,37 @@ func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
 		store = memory.New()
 	}
 
+	// Determine agent type from environment
+	agentType := os.Getenv("AGENT_TYPE")
+	if agentType == "" {
+		agentType = "gigachat" // default
+	}
+
+	var llmClient LLMClient
+	switch agentType {
+	case "ollama":
+		// Use Ollama client
+		host := os.Getenv("OLLAMA_HOST")
+		if host == "" {
+			host = "http://localhost:11434"
+		}
+		model := os.Getenv("OLLAMA_CHAT_MODEL")
+		if model == "" {
+			model = "llama2"
+		}
+		llmClient = NewOllamaClient(host, model)
+		logging.Default().Info("Using Ollama agent", "host", host, "model", model)
+	case "gigachat":
+		fallthrough
+	default:
+		// Use GigaChat client (requires API key)
+		if apiKey == "" {
+			logging.Default().Warn("GIGACHAT_API_KEY is empty, but agent type is gigachat")
+		}
+		llmClient = NewGigaChatClient(apiKey)
+		logging.Default().Info("Using GigaChat agent")
+	}
+
 	// Try to load FSM config if available
 	var fsmInstance *fsm.FSM
 	if configPath := os.Getenv("FSM_CONFIG_PATH"); configPath != "" {
@@ -135,9 +166,8 @@ func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
 			logging.Default().Warn("Failed to load FSM config, using stub validator", "path", configPath, "error", err)
 			fsmInstance, _ = fsm.NewFSM(configPath, store)
 		} else {
-			// Create adapter for GigaChat client
-			gigaClient := NewGigaChatClient(apiKey)
-			adapter := &gigachatLLMClientAdapter{client: gigaClient}
+			// Create adapter for LLM client
+			adapter := &llmClientAdapter{client: llmClient}
 
 			// Create LLM validator
 			validator, err := fsm.NewLLMValidator(adapter, config)
@@ -186,7 +216,7 @@ func NewAgent(apiKey string, storageOpt ...storage.Storage) *Agent {
 	}
 
 	return &Agent{
-		client:          NewGigaChatClient(apiKey),
+		client:          llmClient,
 		storage:         store,
 		logger:          logging.Default(),
 		historyConfig:   loadHistoryConfig(),
