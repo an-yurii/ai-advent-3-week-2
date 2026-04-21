@@ -525,12 +525,21 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 	}
 
 	// Add assistant response to storage with token counts
+	// Handle nil Usage (e.g., Ollama client)
+	var promptTokens, completionTokens, totalTokens int
+	if result.Usage != nil {
+		promptTokens = result.Usage.PromptTokens
+		completionTokens = result.Usage.CompletionTokens
+		totalTokens = result.Usage.TotalTokens
+	} else {
+		a.logger.Debug("LLM response missing token usage (Usage is nil)")
+	}
 	assistantMsg := Message{
 		Role:             "assistant",
 		Content:          result.Content,
-		PromptTokens:     result.Usage.PromptTokens,
-		CompletionTokens: result.Usage.CompletionTokens,
-		TotalTokens:      result.Usage.TotalTokens,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
 	}
 	if err := a.storage.AddMessage(sessionID, toStorageMessage(assistantMsg)); err != nil {
 		// We still return the response, but log the error
@@ -888,12 +897,21 @@ func (a *Agent) makeAutomaticRequest(sessionID string, taskContext *storage.Task
 	}
 
 	// Add assistant response to storage
+	// Handle nil Usage (e.g., Ollama client)
+	var promptTokens, completionTokens, totalTokens int
+	if result.Usage != nil {
+		promptTokens = result.Usage.PromptTokens
+		completionTokens = result.Usage.CompletionTokens
+		totalTokens = result.Usage.TotalTokens
+	} else {
+		a.logger.Debug("LLM response missing token usage (Usage is nil) in automatic request")
+	}
 	assistantMsg := Message{
 		Role:             "assistant",
 		Content:          result.Content,
-		PromptTokens:     result.Usage.PromptTokens,
-		CompletionTokens: result.Usage.CompletionTokens,
-		TotalTokens:      result.Usage.TotalTokens,
+		PromptTokens:     promptTokens,
+		CompletionTokens: completionTokens,
+		TotalTokens:      totalTokens,
 	}
 	if err := a.storage.AddMessage(sessionID, toStorageMessage(assistantMsg)); err != nil {
 		a.logger.LogError(err, "failed to store automatic assistant message")

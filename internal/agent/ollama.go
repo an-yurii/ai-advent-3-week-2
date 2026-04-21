@@ -107,7 +107,7 @@ func (c *OllamaClient) SendMessage(messages []Message) (*CompletionResult, error
 	// Ollama doesn't provide token usage information, so we return empty usage
 	return &CompletionResult{
 		Content: strings.TrimSpace(genResp.Response),
-		Usage:   nil, // Ollama doesn't provide token counts
+		Usage:   &CompletionUsage{}, // Zero token counts
 	}, nil
 }
 
