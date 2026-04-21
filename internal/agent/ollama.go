@@ -88,19 +88,34 @@ func (c *OllamaClient) SendMessage(messages []Message) (*CompletionResult, error
 	url := c.baseURL + "/api/generate"
 	c.logger.Debug("Sending request to Ollama", "url", url, "model", c.model)
 
+	// Log request
+	c.logger.LogOllamaRequest(url, map[string][]string{
+		"Content-Type": {"application/json"},
+	}, string(jsonData))
+
 	resp, err := c.client.Post(url, "application/json", bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send request to Ollama: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Read response body for logging
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log response
+	c.logger.LogOllamaResponse(resp.StatusCode, map[string][]string{
+		"Content-Type": resp.Header.Values("Content-Type"),
+	}, string(respBody))
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("Ollama API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("Ollama API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var genResp generateResponse
-	if err := json.NewDecoder(resp.Body).Decode(&genResp); err != nil {
+	if err := json.Unmarshal(respBody, &genResp); err != nil {
 		return nil, fmt.Errorf("failed to decode Ollama response: %w", err)
 	}
 

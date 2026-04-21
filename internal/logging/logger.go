@@ -65,6 +65,24 @@ func (l *Logger) LogGigaChatResponse(status int, headers map[string][]string, bo
 	)
 }
 
+// LogOllamaRequest logs a request sent to Ollama API.
+func (l *Logger) LogOllamaRequest(url string, headers map[string][]string, body string) {
+	l.Info("OLLAMA_REQUEST",
+		"url", url,
+		"headers", headers,
+		"body", body,
+	)
+}
+
+// LogOllamaResponse logs a response received from Ollama API.
+func (l *Logger) LogOllamaResponse(status int, headers map[string][]string, body string) {
+	l.Info("OLLAMA_RESPONSE",
+		"status", status,
+		"headers", headers,
+		"body", body,
+	)
+}
+
 // LogError logs an error with optional context.
 func (l *Logger) LogError(err error, msg string, args ...any) {
 	l.Error(msg, append([]any{"error", err}, args...)...)

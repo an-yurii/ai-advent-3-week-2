@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"ai-agent-gigachat/internal/logging"
 	"bytes"
 	"encoding/json"
 	"fmt"
@@ -22,6 +23,7 @@ type ollamaClient struct {
 	baseURL string
 	model   string
 	client  *http.Client
+	logger  *logging.Logger
 }
 
 // NewOllamaClient creates a new Ollama client with the given base URL and model.
@@ -32,6 +34,7 @@ func NewOllamaClient(baseURL, model string) OllamaClient {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
+		logger: logging.Default(),
 	}
 }
 
@@ -59,19 +62,34 @@ func (c *ollamaClient) GetEmbedding(text string) ([]float32, error) {
 	}
 
 	url := c.baseURL + "/api/embeddings"
+	// Log request
+	c.logger.LogOllamaRequest(url, map[string][]string{
+		"Content-Type": {"application/json"},
+	}, string(jsonData))
+
 	resp, err := c.client.Post(url, "application/json", bytes.NewReader(jsonData))
 	if err != nil {
 		return nil, fmt.Errorf("failed to send embedding request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	// Read response body for logging
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log response
+	c.logger.LogOllamaResponse(resp.StatusCode, map[string][]string{
+		"Content-Type": resp.Header.Values("Content-Type"),
+	}, string(respBody))
+
 	if resp.StatusCode != http.StatusOK {
-		body, _ := io.ReadAll(resp.Body)
-		return nil, fmt.Errorf("ollama API returned status %d: %s", resp.StatusCode, string(body))
+		return nil, fmt.Errorf("ollama API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
 	var embResp embeddingResponse
-	if err := json.NewDecoder(resp.Body).Decode(&embResp); err != nil {
+	if err := json.Unmarshal(respBody, &embResp); err != nil {
 		return nil, fmt.Errorf("failed to decode embedding response: %w", err)
 	}
 
@@ -85,11 +103,25 @@ func (c *ollamaClient) GetEmbedding(text string) ([]float32, error) {
 // Ping sends a simple request to check if Ollama is reachable.
 func (c *ollamaClient) Ping() error {
 	url := c.baseURL + "/api/tags"
+	// Log request
+	c.logger.LogOllamaRequest(url, map[string][]string{}, "")
+
 	resp, err := c.client.Get(url)
 	if err != nil {
 		return fmt.Errorf("failed to ping Ollama: %w", err)
 	}
 	defer resp.Body.Close()
+
+	// Read response body for logging
+	respBody, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return fmt.Errorf("failed to read response body: %w", err)
+	}
+
+	// Log response
+	c.logger.LogOllamaResponse(resp.StatusCode, map[string][]string{
+		"Content-Type": resp.Header.Values("Content-Type"),
+	}, string(respBody))
 
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("ollama ping returned status %d", resp.StatusCode)
