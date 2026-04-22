@@ -133,27 +133,23 @@ func (s *knowledgeService) FormatContext(query string, results []SearchResult) s
 	}
 
 	var builder strings.Builder
-	builder.WriteString("Вопрос: ")
-	builder.WriteString(query)
-	builder.WriteString("\n\nКонтекст:\n")
+	builder.WriteString("Контекст:\n")
 
-	for i, result := range results {
+	for _, result := range results {
 		chunk := result.Chunk
+		if chunk.Section != "" {
+			builder.WriteString("[")
+			builder.WriteString(chunk.Section)
+			builder.WriteString("] ")
+		} else {
+			builder.WriteString("[] ")
+		}
 		builder.WriteString(chunk.Text)
 		builder.WriteString("\n")
-		builder.WriteString("file_path: ")
-		builder.WriteString(chunk.FilePath)
-		builder.WriteString("\n")
-		if chunk.Section != "" {
-			builder.WriteString("section: ")
-			builder.WriteString(chunk.Section)
-			builder.WriteString("\n")
-		}
-
-		if i < len(results)-1 {
-			builder.WriteString("---\n")
-		}
 	}
+
+	builder.WriteString("\nВопрос: ")
+	builder.WriteString(query)
 
 	return builder.String()
 }
