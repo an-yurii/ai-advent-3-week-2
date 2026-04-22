@@ -476,38 +476,18 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 		}
 	}
 
-	// Add profile context if session has a profile
+	// Get profile if session has one
+	var profile *storage.Profile
 	if storageSession.ProfileID != "" {
-		profile, err := a.storage.GetProfile(storageSession.ProfileID)
+		profile, err = a.storage.GetProfile(storageSession.ProfileID)
 		if err != nil {
 			a.logger.LogError(err, "failed to get profile", "profile_id", storageSession.ProfileID)
-		} else if profile != nil {
-			// Build profile context message
-			var contextBuilder strings.Builder
-			contextBuilder.WriteString("You are using the following profile:\n")
-			contextBuilder.WriteString("Name: " + profile.Name + "\n")
-
-			if profile.Style != "" {
-				contextBuilder.WriteString("\nStyle: " + profile.Style + "\n")
-			}
-			if profile.Constraints != "" {
-				contextBuilder.WriteString("\nConstraints: " + profile.Constraints + "\n")
-			}
-			if profile.Context != "" {
-				contextBuilder.WriteString("\nContext: " + profile.Context + "\n")
-			}
-
-			profileMsg := Message{
-				Role:    "system",
-				Content: contextBuilder.String(),
-			}
-			// Prepend profile message to history
-			history = append([]Message{profileMsg}, history...)
+			profile = nil // Ensure profile is nil on error
 		}
 	}
 
-	// Add FSM context if available
-	fsmContextMsg, err := a.buildFSMContext(sessionID)
+	// Add FSM context if available (includes profile if present)
+	fsmContextMsg, err := a.buildFSMContext(sessionID, profile)
 	if err != nil {
 		a.logger.LogError(err, "failed to build FSM context")
 	} else if fsmContextMsg != nil {
@@ -517,6 +497,26 @@ func (a *Agent) SendMessage(sessionID, userMessage string) (*CompletionResult, e
 
 	// Merge consecutive system messages at the beginning to avoid GigaChat API error
 	history = mergeSystemMessages(history)
+
+	// Save full prompt text to task context metadata
+	if len(history) > 0 && history[0].Role == "system" {
+		fullPromptText := history[0].Content
+		// Get current task context
+		taskContext, err := a.storage.GetTaskContext(sessionID)
+		if err != nil {
+			a.logger.LogError(err, "failed to get task context for saving prompt text")
+		} else if taskContext != nil {
+			// Update metadata with prompt text
+			if taskContext.Metadata == nil {
+				taskContext.Metadata = make(map[string]interface{})
+			}
+			taskContext.Metadata["full_prompt_text"] = fullPromptText
+			// Save updated context
+			if err := a.storage.UpdateTaskContext(sessionID, taskContext); err != nil {
+				a.logger.LogError(err, "failed to save prompt text to task context")
+			}
+		}
+	}
 
 	// Send the (possibly compressed) history to GigaChat
 	result, err := a.client.SendMessage(history)
@@ -678,7 +678,7 @@ func (a *Agent) GetFSMStateInfo(sessionID string) (*fsm.StateInfo, error) {
 
 // buildFSMContext builds a system message with FSM context (task, instructions, feedback)
 // to be included in LLM requests.
-func (a *Agent) buildFSMContext(sessionID string) (*Message, error) {
+func (a *Agent) buildFSMContext(sessionID string, profile *storage.Profile) (*Message, error) {
 	if a.fsm == nil {
 		return nil, nil // No FSM, no context to add
 	}
@@ -701,17 +701,36 @@ func (a *Agent) buildFSMContext(sessionID string) (*Message, error) {
 		return nil, nil
 	}
 
-	// Build context message
+	// Build context message with new order
 	var contextBuilder strings.Builder
+
+	// 1. Instructions text (without header)
+	contextBuilder.WriteString(stateConfig.Instructions + "\n\n")
+
+	// 2. Profile content (if available, without header)
+	if profile != nil {
+		if profile.Name != "" {
+			contextBuilder.WriteString(profile.Name + "\n")
+		}
+		if profile.Style != "" {
+			contextBuilder.WriteString(profile.Style + "\n")
+		}
+		if profile.Constraints != "" {
+			contextBuilder.WriteString(profile.Constraints + "\n")
+		}
+		if profile.Context != "" {
+			contextBuilder.WriteString(profile.Context + "\n")
+		}
+		contextBuilder.WriteString("\n")
+	}
+
+	// 3. Current task
 	contextBuilder.WriteString("## Текущая задача\n")
 	contextBuilder.WriteString(taskContext.Task + "\n\n")
 
+	// 4. Current step
 	contextBuilder.WriteString("## Текущий шаг\n")
-	contextBuilder.WriteString(fmt.Sprintf("Шаг %d: %s\n", stateConfig.StepNumber, stateConfig.Description))
-	contextBuilder.WriteString("\n")
-
-	contextBuilder.WriteString("## Инструкции для текущего шага\n")
-	contextBuilder.WriteString(stateConfig.Instructions + "\n\n")
+	contextBuilder.WriteString(fmt.Sprintf("Шаг %d: %s\n\n", stateConfig.StepNumber, stateConfig.Description))
 
 	// Add validation feedback if available
 	if feedback, ok := taskContext.Metadata["validation_feedback"].(string); ok && feedback != "" {
@@ -852,20 +871,7 @@ func (a *Agent) makeAutomaticRequest(sessionID string, taskContext *storage.Task
 		"state", taskContext.State,
 		"auto_request_count", autoRequestCount+1)
 
-	// Get current state config
-	stateConfig, exists := a.fsm.GetStateConfig(taskContext.State)
-	if !exists {
-		a.logger.LogError(nil, "state config not found for automatic request", "state", taskContext.State)
-		return
-	}
-
-	// Create a system message with instructions for the next step
-	systemMsg := Message{
-		Role:    "system",
-		Content: fmt.Sprintf("Переход к следующему шагу выполнен. Выполни инструкции для текущего шага:\n\n%s", stateConfig.Instructions),
-	}
-
-	// Get current session history
+	// Get current session to retrieve profile
 	session, err := a.storage.GetSession(sessionID)
 	if err != nil {
 		a.logger.LogError(err, "failed to get session for automatic request")
@@ -877,17 +883,50 @@ func (a *Agent) makeAutomaticRequest(sessionID string, taskContext *storage.Task
 		return
 	}
 
+	// Get profile if session has one
+	var profile *storage.Profile
+	if session.ProfileID != "" {
+		profile, err = a.storage.GetProfile(session.ProfileID)
+		if err != nil {
+			a.logger.LogError(err, "failed to get profile for automatic request", "profile_id", session.ProfileID)
+			profile = nil
+		}
+	}
+
+	// Build FSM context message (includes profile if present)
+	fsmContextMsg, err := a.buildFSMContext(sessionID, profile)
+	if err != nil {
+		a.logger.LogError(err, "failed to build FSM context for automatic request")
+		return
+	}
+
 	// Convert history to agent messages
 	history := make([]Message, len(session.History))
 	for i, m := range session.History {
 		history[i] = toAgentMessage(m)
 	}
 
-	// Add the system message to history
-	history = append([]Message{systemMsg}, history...)
+	// Add the system message to history if available
+	if fsmContextMsg != nil {
+		history = append([]Message{*fsmContextMsg}, history...)
+	}
 
 	// Merge consecutive system messages to avoid GigaChat API error
 	history = mergeSystemMessages(history)
+
+	// Save full prompt text to task context metadata
+	if len(history) > 0 && history[0].Role == "system" {
+		fullPromptText := history[0].Content
+		// Update metadata with prompt text
+		if taskContext.Metadata == nil {
+			taskContext.Metadata = make(map[string]interface{})
+		}
+		taskContext.Metadata["full_prompt_text"] = fullPromptText
+		// Save updated context
+		if err := a.storage.UpdateTaskContext(sessionID, taskContext); err != nil {
+			a.logger.LogError(err, "failed to save prompt text to task context in automatic request")
+		}
+	}
 
 	// Send to LLM
 	result, err := a.client.SendMessage(history)
