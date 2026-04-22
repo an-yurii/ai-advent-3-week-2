@@ -56,7 +56,7 @@ fsm_config:
       validation_schema:
         check_list:
           - 
-      on_success: exit
+      on_success: defining_goals
       on_fail: defining_goals
 
 
