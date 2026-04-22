@@ -38,46 +38,34 @@ func NewOllamaClient(baseURL, model string) *OllamaClient {
 	}
 }
 
-// generateRequest is the JSON structure for Ollama's generate API.
-type generateRequest struct {
-	Model  string `json:"model"`
-	Prompt string `json:"prompt"`
-	Stream bool   `json:"stream"`
+// chatRequest is the JSON structure for Ollama's chat API.
+type chatRequest struct {
+	Model    string    `json:"model"`
+	Messages []Message `json:"messages"`
+	Stream   bool      `json:"stream"`
 }
 
-// generateResponse is the JSON structure returned by Ollama's generate API.
-type generateResponse struct {
-	Response string `json:"response"`
-	Done     bool   `json:"done"`
-}
-
-// formatMessages converts a slice of Message to a single prompt string.
-// Ollama expects a plain text prompt, so we format as:
-// <role>: <content>
-//
-// Example:
-// user: Hello
-// assistant: Hi there!
-// user: How are you?
-func formatMessages(messages []Message) string {
-	var sb strings.Builder
-	for _, msg := range messages {
-		sb.WriteString(msg.Role)
-		sb.WriteString(": ")
-		sb.WriteString(msg.Content)
-		sb.WriteString("\n")
-	}
-	return strings.TrimSpace(sb.String())
+// chatResponse is the JSON structure returned by Ollama's chat API.
+type chatResponse struct {
+	Model              string  `json:"model"`
+	CreatedAt          string  `json:"created_at"`
+	Message            Message `json:"message"`
+	Done               bool    `json:"done"`
+	DoneReason         string  `json:"done_reason,omitempty"`
+	TotalDuration      int64   `json:"total_duration,omitempty"`
+	LoadDuration       int64   `json:"load_duration,omitempty"`
+	PromptEvalCount    int     `json:"prompt_eval_count,omitempty"`
+	PromptEvalDuration int64   `json:"prompt_eval_duration,omitempty"`
+	EvalCount          int     `json:"eval_count,omitempty"`
+	EvalDuration       int64   `json:"eval_duration,omitempty"`
 }
 
 // SendMessage sends a conversation history to Ollama and returns the assistant's reply.
 func (c *OllamaClient) SendMessage(messages []Message) (*CompletionResult, error) {
-	prompt := formatMessages(messages)
-
-	reqBody := generateRequest{
-		Model:  c.model,
-		Prompt: prompt,
-		Stream: false,
+	reqBody := chatRequest{
+		Model:    c.model,
+		Messages: messages,
+		Stream:   false,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
@@ -85,7 +73,7 @@ func (c *OllamaClient) SendMessage(messages []Message) (*CompletionResult, error
 		return nil, fmt.Errorf("failed to marshal Ollama request: %w", err)
 	}
 
-	url := c.baseURL + "/api/generate"
+	url := c.baseURL + "/api/chat"
 	c.logger.Debug("Sending request to Ollama", "url", url, "model", c.model)
 
 	// Log request
@@ -114,15 +102,21 @@ func (c *OllamaClient) SendMessage(messages []Message) (*CompletionResult, error
 		return nil, fmt.Errorf("Ollama API returned status %d: %s", resp.StatusCode, string(respBody))
 	}
 
-	var genResp generateResponse
-	if err := json.Unmarshal(respBody, &genResp); err != nil {
+	var chatResp chatResponse
+	if err := json.Unmarshal(respBody, &chatResp); err != nil {
 		return nil, fmt.Errorf("failed to decode Ollama response: %w", err)
 	}
 
-	// Ollama doesn't provide token usage information, so we return empty usage
+	// Extract token usage from Ollama response
+	usage := &CompletionUsage{
+		PromptTokens:     chatResp.PromptEvalCount,
+		CompletionTokens: chatResp.EvalCount,
+		TotalTokens:      chatResp.PromptEvalCount + chatResp.EvalCount,
+	}
+
 	return &CompletionResult{
-		Content: strings.TrimSpace(genResp.Response),
-		Usage:   &CompletionUsage{}, // Zero token counts
+		Content: strings.TrimSpace(chatResp.Message.Content),
+		Usage:   usage,
 	}, nil
 }
 
