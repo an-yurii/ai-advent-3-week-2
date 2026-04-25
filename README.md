@@ -136,6 +136,12 @@ Set the `AGENT_TYPE` environment variable to choose the agent:
 Additional Ollama configuration:
 - `OLLAMA_HOST` - URL of Ollama service (default: `http://localhost:11434`)
 - `OLLAMA_CHAT_MODEL` - Model for chat completions (default: `llama2`)
+- `OLLAMA_TEMPERATURE` - Controls randomness (0.0 to 1.0, optional)
+- `OLLAMA_TOP_K` - Limit token selection to top K (optional)
+- `OLLAMA_TOP_P` - Nucleus sampling probability (optional)
+- `OLLAMA_NUM_CTX` - Context window size (optional)
+- `OLLAMA_NUM_PREDICT` - Maximum tokens to generate (optional)
+- `OLLAMA_SEED` - Random seed for reproducibility (optional)
 
 ### Example Configuration
 

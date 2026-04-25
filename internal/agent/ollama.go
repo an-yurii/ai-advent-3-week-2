@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -18,6 +20,56 @@ type OllamaClient struct {
 	model   string
 	client  *http.Client
 	logger  *logging.Logger
+	options *chatOptions
+}
+
+// parseOptionsFromEnv reads environment variables and returns a chatOptions struct.
+func parseOptionsFromEnv() *chatOptions {
+	opts := &chatOptions{}
+
+	// Temperature
+	if s := os.Getenv("OLLAMA_TEMPERATURE"); s != "" {
+		if v, err := strconv.ParseFloat(s, 64); err == nil {
+			opts.Temperature = &v
+		}
+	}
+	// TopK
+	if s := os.Getenv("OLLAMA_TOP_K"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			opts.TopK = &v
+		}
+	}
+	// TopP
+	if s := os.Getenv("OLLAMA_TOP_P"); s != "" {
+		if v, err := strconv.ParseFloat(s, 64); err == nil {
+			opts.TopP = &v
+		}
+	}
+	// NumCtx
+	if s := os.Getenv("OLLAMA_NUM_CTX"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			opts.NumCtx = &v
+		}
+	}
+	// NumPredict
+	if s := os.Getenv("OLLAMA_NUM_PREDICT"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			opts.NumPredict = &v
+		}
+	}
+	// Seed
+	if s := os.Getenv("OLLAMA_SEED"); s != "" {
+		if v, err := strconv.Atoi(s); err == nil {
+			opts.Seed = &v
+		}
+	}
+
+	// Return nil if no options were set
+	if opts.Temperature == nil && opts.TopK == nil && opts.TopP == nil &&
+		opts.NumCtx == nil && opts.NumPredict == nil && opts.Seed == nil {
+		return nil
+	}
+	return opts
 }
 
 // NewOllamaClient creates a new Ollama client with the given base URL and model.
@@ -34,15 +86,27 @@ func NewOllamaClient(baseURL, model string) *OllamaClient {
 		client: &http.Client{
 			Timeout: 30 * time.Second,
 		},
-		logger: logging.Default(),
+		logger:  logging.Default(),
+		options: parseOptionsFromEnv(),
 	}
+}
+
+// chatOptions represents the optional parameters for Ollama's chat API.
+type chatOptions struct {
+	Temperature *float64 `json:"temperature,omitempty"`
+	TopK        *int     `json:"top_k,omitempty"`
+	TopP        *float64 `json:"top_p,omitempty"`
+	NumCtx      *int     `json:"num_ctx,omitempty"`
+	NumPredict  *int     `json:"num_predict,omitempty"`
+	Seed        *int     `json:"seed,omitempty"`
 }
 
 // chatRequest is the JSON structure for Ollama's chat API.
 type chatRequest struct {
-	Model    string    `json:"model"`
-	Messages []Message `json:"messages"`
-	Stream   bool      `json:"stream"`
+	Model    string       `json:"model"`
+	Messages []Message    `json:"messages"`
+	Stream   bool         `json:"stream"`
+	Options  *chatOptions `json:"options,omitempty"`
 }
 
 // chatResponse is the JSON structure returned by Ollama's chat API.
@@ -66,6 +130,7 @@ func (c *OllamaClient) SendMessage(messages []Message) (*CompletionResult, error
 		Model:    c.model,
 		Messages: messages,
 		Stream:   false,
+		Options:  c.options,
 	}
 
 	jsonData, err := json.Marshal(reqBody)
